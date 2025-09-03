@@ -1,134 +1,165 @@
-from rest_framework import generics
-from rest_framework.response import Response
-from rest_framework import status
-from .models import*
-from .serializers import*
-from rest_framework.decorators import api_view
-from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework.permissions import BasePermission
-from rest_framework.permissions import IsAuthenticated,AllowAny
-from rest_framework.views import APIView
-from rest_framework.generics import ListCreateAPIView
+# authentication/views.py
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.permissions import BasePermission, IsAuthenticated, AllowAny
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+# Import only what we use (clear & explicit)
+from .serializers import (
+    UserRegistrationSerializer,
+    StaffApproveSerializer,
+    CustomTokenObtainPairSerializer,
+    UserProfileSerializer,
+    PasswordChangeSerializer,
+    UserProfileUpdateSerializer,
+    AdminCreateUserSerializer,   # <-- make sure this exists in serializers.py
+)
+
+User = get_user_model()
 
 
-User=get_user_model()
-
+# ---------------------------
+# Permissions
+# ---------------------------
 class IsAdmin(BasePermission):
+    """
+    Admin-only permission (role field must be 'Admin', case-insensitive).
+    """
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'admin'
+        return bool(
+            request.user.is_authenticated
+            and getattr(request.user, "role", "").lower() == "admin"
+        )
 
 
-class UserRegistrationView(ListCreateAPIView):
+# ---------------------------
+# Public Registration (optional if you keep self-signup)
+# ---------------------------
+class UserRegistrationView(generics.ListCreateAPIView):
+    """
+    POST: Public registration (e.g., General users).
+    GET: Disabled to avoid exposing user list.
+    """
     permission_classes = [AllowAny]
-
-    queryset = User.objects.all() 
+    queryset = User.objects.all()
     serializer_class = UserRegistrationSerializer
 
+    def get(self, request, *args, **kwargs):
+        raise MethodNotAllowed("GET")
+
     def create(self, request, *args, **kwargs):
-        print("Received data:", request.data)  # Log received data
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        return Response(
-            {"message": "Registration successful"},
-            status=status.HTTP_201_CREATED
-        )
+        return Response({"message": "Registration successful"}, status=status.HTTP_201_CREATED)
 
 
-
+# ---------------------------
+# Staff list / create (existing)
+# ---------------------------
 class StaffListCreateView(generics.ListCreateAPIView):
+    """
+    GET: List users with optional filters (?approved=true|false, ?role=Teacher).
+    POST: Create staff (admin-only).
+    """
     permission_classes = [IsAuthenticated]
-
-    queryset = User.objects.all()
     serializer_class = StaffApproveSerializer
+    queryset = User.objects.all()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        approved = self.request.query_params.get("approved")
+        role = self.request.query_params.get("role")
+
+        if approved is not None:
+            approved_bool = str(approved).lower() in ("1", "true", "yes", "y")
+            # Using is_approved only if your model has it
+            if hasattr(User, "is_approved"):
+                qs = qs.filter(is_approved=approved_bool)
+
+        if role:
+            qs = qs.filter(role__iexact=role)
+
+        order_field = "date_joined" if hasattr(User, "date_joined") else "id"
+        return qs.order_by(f"-{order_field}")
+
+    def create(self, request, *args, **kwargs):
+        if not IsAdmin().has_permission(request, self):
+            return Response({"detail": "Only admins can create staff."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
 
 
-
-class StaffApproveView(generics.RetrieveUpdateDestroyAPIView):  # GET, PUT, DELETE
+class StaffApproveView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET / PUT/PATCH / DELETE single user (admin-only).
+    PUT/PATCH: e.g. {"is_approved": true, "role": "Teacher"}
+    """
     permission_classes = [IsAdmin]
-
     queryset = User.objects.all()
     serializer_class = StaffApproveSerializer
-    # lookup_field = "id"  # Users will be accessed using their ID
 
     def update(self, request, *args, **kwargs):
-        """Update user's approval status"""
         user = self.get_object()
+        data = request.data.copy()
 
-        # Convert "true"/"false" strings to actual boolean values
-        is_approved = request.data.get("is_approved")
-        if isinstance(is_approved, str):
-            is_approved = is_approved.lower() == "true"
+        # Normalize "is_approved" if it exists in your model/serializer
+        if "is_approved" in data:
+            is_approved = data.get("is_approved")
+            if isinstance(is_approved, str):
+                is_approved = is_approved.lower() == "true"
+            data["is_approved"] = is_approved
 
         try:
-            user.is_approved = is_approved
-            user.save()
+            serializer = self.get_serializer(user, data=data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
             return Response(
-                {"message": f"User {user.username} approval status updated successfully."},
+                {"message": f"User {user.username} updated successfully.", "data": serializer.data},
                 status=status.HTTP_200_OK,
             )
         except IntegrityError:
-            return Response(
-                {"error": "Database integrity error. Check related data."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "Database integrity error."}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
-        """Delete the user"""
         user = self.get_object()
+        username = user.username
         user.delete()
-        return Response(
-            {"message": f"User {user.username} deleted successfully."},
-            status=status.HTTP_204_NO_CONTENT,
-        )
+        return Response({"message": f"User {username} deleted successfully."}, status=status.HTTP_200_OK)
 
 
-
-
-
+# ---------------------------
+# JWT Token (login)
+# ---------------------------
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
 
-
+# ---------------------------
+# Profile & Password
+# ---------------------------
 class UserProfileView(APIView):
-    permission_classes = [IsAuthenticated]  
-    
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
-        if request.user.is_authenticated:
-            serializer = UserProfileSerializer(request.user)
-            return Response(serializer.data)
-        else:
-            return Response({"error": "User not authenticated"}, status=401)
-
-
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PasswordChangeView(APIView):
-    permission_classes = [IsAuthenticated]  # Only authenticated users can access this view
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # Create the serializer with data and context
-        print(request.data)
-        if not request.user.is_authenticated:
-            return Response({"detail": "Authentication is required."}, status=401)  # Unauthorized
-
-        serializer = PasswordChangeSerializer(data=request.data, context={'request': request})
-        # Check if the data is valid
+        serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         if serializer.is_valid():
-            serializer.save()  # Save the new password
-            return Response({"detail": "Password updated successfully."})
-
-        # If the serializer is invalid, print the errors for debugging
-        print("Validation errors:", serializer.errors)
-
-        return Response(serializer.errors, status=400)  # Return 400 with error
-    
-    
+            serializer.save()
+            return Response({"detail": "Password updated successfully."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserProfileUpdateView(APIView):
@@ -137,9 +168,69 @@ class UserProfileUpdateView(APIView):
     def patch(self, request, *args, **kwargs):
         user = request.user
         serializer = UserProfileUpdateSerializer(user, data=request.data, partial=True)
-        
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Profile updated successfully", "data": serializer.data}, status=200)
-        return Response(serializer.errors, status=400)
-    
+            return Response({"message": "Profile updated successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------
+# Admin-only: Users CRUD + Reset Password
+# ---------------------------
+class AdminUserListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/admin/users/?role=Teacher&q=ali
+    POST /api/admin/users/  { username, email, role, phone, [password], ... }
+         - Password is hashed; if omitted, server generates a temp one and returns it once.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminCreateUserSerializer
+
+    def get_queryset(self):
+        qs = User.objects.all().order_by("-id")
+        role = self.request.query_params.get("role")
+        if role:
+            qs = qs.filter(role__iexact=role)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(username__icontains=q)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        user = ser.save()
+        data = AdminCreateUserSerializer(user).data
+        # Show the temp password once (if generated server-side)
+        data["temp_password"] = ser.context.get("temp_password")
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class AdminUserRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    """
+    GET   /api/admin/users/<id>/
+    PATCH /api/admin/users/<id>/  (e.g., {"role":"Teacher","is_active":true})
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+    queryset = User.objects.all()
+    serializer_class = StaffApproveSerializer  # reuse for updates
+
+
+class AdminResetPasswordView(generics.UpdateAPIView):
+    """
+    PATCH /api/admin/users/<id>/reset-password/  {"new_password":"..."}
+    If new_password is omitted, generates a random one and returns it.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+    queryset = User.objects.all()
+
+    def update(self, request, *args, **kwargs):
+        user = self.get_object()
+        new_pw = request.data.get("new_password")
+        if not new_pw:
+            import secrets
+            new_pw = secrets.token_urlsafe(8)
+        user.set_password(new_pw)            # <-- hashed
+        user.must_change_password = True
+        user.save()
+        return Response({"message": "Password reset.", "temp_password": new_pw}, status=status.HTTP_200_OK)

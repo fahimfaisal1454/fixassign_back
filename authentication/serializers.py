@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from rest_framework.exceptions import AuthenticationFailed
 from django.contrib.auth import password_validation
 import json
+from django.contrib.auth import get_user_model
 
 
 
@@ -133,3 +134,30 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
             'profile_picture': {'required': False}
         }
         
+User = get_user_model()
+
+class AdminCreateUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "role", "phone",
+                  "profile_picture", "password", "must_change_password", "is_active"]
+        extra_kwargs = {
+            "is_active": {"required": False, "default": True},
+            "must_change_password": {"required": False, "default": True},
+        }
+
+    def create(self, validated_data):
+        raw_pw = validated_data.pop("password", "") or None
+        user = User(**validated_data)
+        if "is_active" not in validated_data:
+            user.is_active = True
+        user.save()
+        if not raw_pw:
+            import secrets
+            raw_pw = secrets.token_urlsafe(8)
+        user.set_password(raw_pw)  # HASHES the password
+        user.save()
+        self.context["temp_password"] = raw_pw  # optional return
+        return user
