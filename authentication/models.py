@@ -8,11 +8,13 @@ class User(AbstractUser):
         ('Admin', 'Admin'),
         ('General', 'General'),
         ('Teacher', 'Teacher'),
+        ('Student', 'Student'),
     )
 
-    role = models.CharField(max_length=40, choices=ROLE_CHOICES, default='General',blank=True, null=True)
+    role = models.CharField(max_length=40, choices=ROLE_CHOICES, default='General', blank=True, null=True)
     profile_picture = models.ImageField(upload_to='image/', blank=True, null=True)
     phone = models.CharField(max_length=15, blank=True, null=True)
+    must_change_password = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if self.is_superuser:

@@ -66,7 +66,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
-
+        # If you want to block unapproved accounts, uncomment:
+        # if hasattr(user, "is_approved") and not user.is_approved:
+        #     raise AuthenticationFailed("User not approved by admin.")
+        data["role"] = getattr(user, "role", None)
+        data["username"] = user.username
         return data
 
 
