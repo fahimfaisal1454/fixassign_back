@@ -51,7 +51,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
 ]
-
+AUTH_USER_MODEL = "authentication.User"
 # -------------------------------------------------------------------
 # Middleware
 # Order matters: CORS should be high and before CommonMiddleware

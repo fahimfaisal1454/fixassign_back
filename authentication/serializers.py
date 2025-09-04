@@ -44,21 +44,18 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 
 class StaffApproveSerializer(serializers.ModelSerializer):
+    """
+    Used by admin to view/update users.
+    We use `is_active` as the approval toggle.
+    """
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role", "is_approved", "phone", "profile_picture"]
-        # read_only_fields = ["id", "username", "email", "role"]  # Prevent modification of certain fields
+        fields = ["id", "username", "email", "role", "is_active", "phone", "profile_picture"]
+        read_only_fields = ["id", "username", "email"]  # adjust if you want these editable
 
     def update(self, instance, validated_data):
-        """Ensure 'is_approved' is updated properly"""
-        is_approved = validated_data.get("is_approved", instance.is_approved)
-
-        if isinstance(is_approved, str):  # Handle "true"/"false" as string input
-            is_approved = is_approved.lower() == "true"
-
-        instance.is_approved = is_approved
-        instance.save()
-        return instance
+        # Nothing special needed; DRF will set is_active/role/etc.
+        return super().update(instance, validated_data)
 
 
 

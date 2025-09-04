@@ -19,7 +19,20 @@ class TeacherSerializer(serializers.ModelSerializer):
         model = Teacher
         fields = '__all__'
 
-
+class StudentMiniSerializer(serializers.ModelSerializer):
+    """
+    Slim serializer for teacher views (attendance, student list, etc.)
+    """
+    class Meta:
+        model = Student
+        fields = [
+            "id",
+            "full_name",
+            "roll_number",
+            "class_name",
+            "section",
+            "photo",
+        ]
 
 class StaffSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
