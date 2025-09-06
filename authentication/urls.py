@@ -20,8 +20,7 @@ urlpatterns = [
     path('change-password/', PasswordChangeView.as_view(), name='change-password'),
     path('update-profile/', UserProfileUpdateView.as_view(), name='update-profile'),
 
-    path('approve_staff/', StaffListCreateView.as_view(), name='approve_staff'),
-    path('approve_staff/<int:pk>/', StaffApproveView.as_view(), name='approve-staff'),
+
 
     # NEW: Admin-only user management
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),

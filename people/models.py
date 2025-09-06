@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.conf import settings
 
 class Teacher(models.Model):
     full_name = models.CharField(max_length=150)
@@ -10,9 +10,16 @@ class Teacher(models.Model):
     designation = models.CharField(max_length=100, blank=True)
     teacher_intro = models.TextField(blank=True, null=True)
 
+    # NEW: link to login account (unique per teacher)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="teacher_profile",
+    )
+
     def __str__(self):
         return self.full_name
-
 
 
 class Staff(models.Model):

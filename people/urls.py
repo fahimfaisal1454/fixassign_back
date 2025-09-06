@@ -6,12 +6,12 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register(r'teachers', TeacherViewSet)
+
 router.register(r'staff', StaffViewSet)
 router.register(r'students', StudentViewSet)
 router.register(r'principal-list', PrincipalListViewSet)
 router.register(r'president-list', PresidentListViewSet)
-
+router.register(r'teachers', TeacherViewSet, basename='teachers')
 urlpatterns = [
     path('', include(router.urls)),
 ] 
