@@ -1,20 +1,21 @@
 from rest_framework import serializers
-from .models import ClassName, Subject, GalleryItem, Banner, Section
-from institution.utils.image_compressor import compress_image
+from .models import ClassName, Subject, Section, ClassSubject
 
-# ---------- NEW ----------
+
+# -------- Sections --------
 class SectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Section
         fields = ["id", "name"]
-# -------------------------
 
+
+# -------- Classes --------
 class ClassNameSerializer(serializers.ModelSerializer):
-    # Accept IDs from the client
+    # accept IDs from client
     sections = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Section.objects.all(), required=False
     )
-    # Nice read-only detail for table
+    # nice read-only info for tables
     sections_detail = SectionSerializer(source="sections", many=True, read_only=True)
 
     class Meta:
@@ -35,37 +36,45 @@ class ClassNameSerializer(serializers.ModelSerializer):
             instance.sections.set(sections)
         return instance
 
+
+# -------- Subjects --------
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
-        fields = "__all__"
+        fields = ["id", "name", "class_name", "is_theory", "is_practical"]
 
-class GalleryItemSerializer(serializers.ModelSerializer):
-    def create(self, validated_data):
-        if 'image' in validated_data:
-            validated_data['image'] = compress_image(validated_data['image'], max_size_kb=100)
-        return super().create(validated_data)
 
-    def update(self, instance, validated_data):
-        if 'image' in validated_data:
-            validated_data['image'] = compress_image(validated_data['image'], max_size_kb=100)
-        return super().update(instance, validated_data)
+# -------- Assigned Subjects (ClassSubject) --------
+class ClassSubjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClassSubject
+        fields = [
+            "id", "class_name", "section", "subject", "teacher",
+            "is_compulsory", "order", "created_at"
+        ]
+
+
+class ClassSubjectListSerializer(serializers.ModelSerializer):
+    # convenience fields for list/table
+    section_name = serializers.CharField(source="section.name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    teacher_name = serializers.CharField(source="teacher.full_name", read_only=True)
+    is_theory = serializers.BooleanField(source="subject.is_theory", read_only=True)
+    is_practical = serializers.BooleanField(source="subject.is_practical", read_only=True)
 
     class Meta:
-        model = GalleryItem
-        fields = "__all__"
+        model = ClassSubject
+        fields = [
+            "id", "class_name", "section", "subject", "teacher",
+            "is_compulsory", "order", "created_at",
+            "section_name", "subject_name", "teacher_name",
+            "is_theory", "is_practical",
+        ]
 
-class BannerItemSerializer(serializers.ModelSerializer):
-    def create(self, validated_data):
-        if 'image' in validated_data:
-            validated_data['image'] = compress_image(validated_data['image'], max_size_kb=800)
-        return super().create(validated_data)
 
-    def update(self, instance, validated_data):
-        if 'image' in validated_data:
-            validated_data['image'] = compress_image(validated_data['image'], max_size_kb=800)
-        return super().update(instance, validated_data)
-
-    class Meta:
-        model = Banner
-        fields = "__all__"
+# Payload for bulk assign endpoint
+class BulkAssignPayloadSerializer(serializers.Serializer):
+    class_id = serializers.IntegerField()
+    section_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+    subject_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+    teacher_id = serializers.IntegerField(required=False, allow_null=True)
