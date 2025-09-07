@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from .views import (
-    ClassNameViewSet, SubjectViewSet,
+    ClassNameViewSet, 
     PeriodViewSet, ClassroomViewSet, TimetableEntryViewSet,
     ExamRoutineViewSet, SyllabusViewSet, ResultViewSet, RoutineViewSet,
     GalleryItemViewSet,
@@ -12,7 +12,7 @@ router = DefaultRouter()
 
 # Lookups for frontend
 router.register(r"class-names", ClassNameViewSet, basename="class-name")
-router.register(r"subjects", SubjectViewSet, basename="subject")
+
 
 # Core academic endpoints
 router.register(r"periods", PeriodViewSet, basename="period")
