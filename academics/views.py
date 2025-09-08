@@ -1,6 +1,7 @@
 from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
 from .models import (
     Period, Classroom, TimetableEntry,
@@ -166,6 +167,7 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
     """
     CRUD for assigning teachers to class/section/subject per day/period.
     """
+    permission_classes = [IsAuthenticated]  # ensures request.user is real
     queryset = TeacherAssignment.objects.select_related(
         "class_name", "section", "subject", "teacher"
     ).all()
@@ -196,6 +198,17 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(period=period)
 
         return qs.order_by("day_of_week", "period", "class_name__name", "section__name")
+
+    @action(detail=False, methods=["get"], url_path="my-class")
+    def my_class(self, request):
+        """
+        Return only the classes for the currently logged-in teacher.
+        """
+        teacher = getattr(request.user, "teacher_profile", None)  # <- linked Teacher profile
+        if not teacher:
+            return Response([], status=200)  # not linked yet: empty list
+        qs = self.get_queryset().filter(teacher_id=teacher.id)
+        return Response(self.get_serializer(qs, many=True).data)
 
     @action(detail=False, methods=["get"])
     def week(self, request):
