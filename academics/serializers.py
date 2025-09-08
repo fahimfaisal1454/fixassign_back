@@ -136,13 +136,13 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
     class_name = serializers.PrimaryKeyRelatedField(queryset=ClassName.objects.all())
     section = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all())
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
-    teacher = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    teacher = serializers.PrimaryKeyRelatedField(queryset=Teacher.objects.all())
 
     # readable labels for UI
     class_name_label = serializers.CharField(source="class_name.name", read_only=True)
     section_label = serializers.CharField(source="section.name", read_only=True)
     subject_label = serializers.CharField(source="subject.name", read_only=True)
-    teacher_label = serializers.SerializerMethodField(read_only=True)
+    teacher_label = serializers.CharField(source="teacher.full_name", read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
 
     def get_teacher_label(self, obj):
