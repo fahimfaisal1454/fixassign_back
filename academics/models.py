@@ -282,7 +282,7 @@ class TeacherAssignment(models.Model):
     )
     # Use the project’s configured user model
     teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        "people.teacher",
         on_delete=models.PROTECT,
         related_name="teacher_assignments",
     )

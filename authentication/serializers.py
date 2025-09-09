@@ -114,9 +114,11 @@ class PasswordChangeSerializer(serializers.Serializer):
                 
         
 class UserProfileSerializer(serializers.ModelSerializer):
+    teacher_id = serializers.IntegerField(source="teacher_profile.id", read_only=True)
+    teacher_name = serializers.CharField(source="teacher_profile.full_name", read_only=True)
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'profile_picture','phone']
+        fields = ['id', 'username', 'email', 'role', 'profile_picture','phone','teacher_id', 'teacher_name']
         
         
         
