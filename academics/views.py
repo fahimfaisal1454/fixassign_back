@@ -1,10 +1,10 @@
 from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
+from rest_framework.permissions import IsAuthenticated
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, TeacherAssignment
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, TeacherAssignment, 
 )
 from .serializers import (
     PeriodSerializer, ClassroomSerializer, TimetableEntrySerializer,
@@ -12,7 +12,7 @@ from .serializers import (
     GalleryItemSerializer, TeacherAssignmentSerializer,
 )
 from master.models import ClassName, Subject
-
+from people.models import Student
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Lightweight lookups for frontend (classes & subjects)
@@ -57,7 +57,7 @@ class SubjectViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Core CRUD endpoints
+# Core CRUD endpointsssssss
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PeriodViewSet(viewsets.ModelViewSet):
@@ -78,6 +78,7 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
       &subject_id=   (Subject pk)
       &teacher_id=   (Teacher pk)
       &day=Mon|Tue|...
+      &student=me    (auto filter by logged-in student's class & section)
     """
     queryset = (
         TimetableEntry.objects
@@ -85,17 +86,18 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         .all()
     )
     serializer_class = TimetableEntrySerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
         q = self.request.query_params
 
-        class_id  = q.get("class_id")
+        class_id = q.get("class_id")
         section_id = q.get("section_id")
         subject_id = q.get("subject_id")
         teacher_id = q.get("teacher_id")
         day = q.get("day") or q.get("day_of_week")
-        room_name = q.get("room")  # legacy text room filter
+        room_name = q.get("room")
         classroom_id = q.get("classroom_id")
 
         if class_id:
@@ -107,36 +109,49 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         if teacher_id:
             qs = qs.filter(teacher_id=teacher_id)
         if day:
+            # Only accept valid 3-letter codes (Mon..Sun)
+            if day not in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}:
+                return qs.none()
             qs = qs.filter(day_of_week=day)
         if classroom_id:
             qs = qs.filter(classroom_id=classroom_id)
         if room_name:
             qs = qs.filter(room__iexact=room_name)
 
-        # Order by day, then time, then period as a tie-breaker
+        # student=me → auto filter by logged-in student's class/section
+        if q.get("student") == "me":
+            stu = Student.objects.filter(user=self.request.user).first()
+            if not stu:
+                return qs.none()
+            qs = qs.filter(class_name=stu.class_name, section=stu.section)
+
         return qs.order_by("day_of_week", "start_time", "period")
 
     @action(detail=False, methods=["get"])
     def week(self, request):
         """
-        Return entries grouped by day for the given filters.
-        Useful for class/section or teacher weekly view.
+        Return entries grouped by day (Mon–Sun) for the given filters.
         """
-        data_by_day = {}
         entries = self.get_queryset()
-        for entry in entries:
-            label = entry.get_day_of_week_display()
-            data_by_day.setdefault(label, []).append(TimetableEntrySerializer(entry).data)
+        serializer = TimetableEntrySerializer(entries, many=True)
 
-        # sort each day by start_time then period
+        # prepare dict with all days to keep order
+        data_by_day = {k: [] for k in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+
+        for r in serializer.data:
+            label = r.get("day_of_week_display") or r.get("day_of_week")
+            data_by_day.setdefault(label, []).append(r)
+
+        # sort within each day
         for k in list(data_by_day.keys()):
             data_by_day[k] = sorted(
                 data_by_day[k],
-                key=lambda r: (r.get("start_time") or "", r.get("period") or "")
+                key=lambda r: ((r.get("start_time") or ""), (r.get("period") or ""))
             )
+
         return Response(data_by_day)
 
-
+    
 class ExamRoutineViewSet(viewsets.ModelViewSet):
     queryset = ExamRoutine.objects.all()
     serializer_class = ExamRoutineSerializer

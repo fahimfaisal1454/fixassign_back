@@ -14,6 +14,7 @@ from .serializers import (
     StudentSerializer,
     PrincipalListSerializer,
     PresidentListSerializer,
+    StudentMiniSerializer
 )
 
 User = get_user_model()
@@ -103,9 +104,49 @@ class StaffViewSet(viewsets.ModelViewSet):
 
 
 class StudentViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Student profiles.
+    """
     queryset = Student.objects.all().order_by("class_name", "section", "full_name")
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        # Optional search/filter params
+        q = self.request.query_params.get("q")
+        class_id = self.request.query_params.get("class_id")
+        section_id = self.request.query_params.get("section_id")
+
+        if q:
+            qs = qs.filter(full_name__icontains=q)
+
+        if class_id:
+            qs = qs.filter(class_name_id=class_id)
+
+        if section_id:
+            qs = qs.filter(section_id=section_id)
+
+        return qs
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        """
+        Return the Student record linked to the logged-in user.
+        """
+        student = Student.objects.filter(user=request.user).first()
+        if not student:
+            return Response({"detail": "No student profile linked."}, status=404)
+        return Response(StudentSerializer(student).data)
+
+    @action(detail=False, methods=["get"], url_path="mini")
+    def mini(self, request):
+        """
+        Return a slimmed down list (useful for attendance lists, teacher views, etc.)
+        """
+        students = self.get_queryset()
+        return Response(StudentMiniSerializer(students, many=True).data)
 
 
 class PrincipalListViewSet(viewsets.ModelViewSet):
