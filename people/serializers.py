@@ -61,11 +61,20 @@ class StaffSerializer(serializers.ModelSerializer):
 
 
 class StudentSerializer(serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source="user", required=False, allow_null=True
+    )
+    user_username = serializers.SerializerMethodField()
+    
+    def get_user_username(self, obj):
+        return getattr(obj.user, "username", None)
     def create(self, validated_data):
         if "photo" in validated_data and validated_data["photo"]:
             validated_data["photo"] = compress_image(validated_data["photo"], max_size_kb=200)
         return super().create(validated_data)
 
+    
+   
     def update(self, instance, validated_data):
         if "photo" in validated_data and validated_data["photo"]:
             validated_data["photo"] = compress_image(validated_data["photo"], max_size_kb=200)

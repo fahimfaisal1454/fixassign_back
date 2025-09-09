@@ -103,6 +103,17 @@ class StaffViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
+from django.contrib.auth import get_user_model
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from .models import Student
+from .serializers import StudentSerializer, StudentMiniSerializer
+
+User = get_user_model()
+
 class StudentViewSet(viewsets.ModelViewSet):
     """
     CRUD for Student profiles.
@@ -118,17 +129,61 @@ class StudentViewSet(viewsets.ModelViewSet):
         q = self.request.query_params.get("q")
         class_id = self.request.query_params.get("class_id")
         section_id = self.request.query_params.get("section_id")
+        linked = self.request.query_params.get("linked")  # NEW: true/false
 
         if q:
             qs = qs.filter(full_name__icontains=q)
-
         if class_id:
             qs = qs.filter(class_name_id=class_id)
-
         if section_id:
             qs = qs.filter(section_id=section_id)
 
+        # NEW: filter by linkage to a User (for the "unlinked" dropdown)
+        if linked is not None:
+            is_linked = str(linked).lower() in ("1", "true", "yes", "y")
+            qs = qs.filter(user__isnull=not is_linked)
+
         return qs
+
+    @action(detail=True, methods=["post"], url_path="link-user")
+    def link_user(self, request, pk=None):
+        """
+        Link this student profile to an existing User (expects { "user_id": <id> }).
+        """
+        student = self.get_object()
+        user_id = request.data.get("user_id")
+        if not user_id:
+            return Response({"detail": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Optional: enforce role == Student if your User has a role field
+        role = getattr(user, "role", None)
+        if role and str(role).lower() != "student":
+            return Response({"detail": "Selected user is not a Student."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce one-to-one (user can't already be linked to another student)
+        existing = getattr(user, "student_profile", None)
+        if existing and existing.id != student.id:
+            return Response({"detail": "This user is already linked to another student profile."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        student.user = user
+        student.save(update_fields=["user"])
+        return Response(StudentSerializer(student).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="unlink-user")
+    def unlink_user(self, request, pk=None):
+        """
+        Remove any linked User from this student profile.
+        """
+        student = self.get_object()
+        student.user = None
+        student.save(update_fields=["user"])
+        return Response(StudentSerializer(student).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
@@ -147,6 +202,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         students = self.get_queryset()
         return Response(StudentMiniSerializer(students, many=True).data)
+
 
 
 class PrincipalListViewSet(viewsets.ModelViewSet):

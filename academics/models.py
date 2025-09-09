@@ -79,11 +79,10 @@ class TimetableEntry(models.Model):
     # NEW: optional teacher & classroom
     teacher = models.ForeignKey(
         "people.Teacher",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,   # was PROTECT
+        null=True, blank=True,
         related_name="timetable_rows",
-        null=True,
-        blank=True,
-    )
+)
     classroom = models.ForeignKey(
         Classroom,
         on_delete=models.PROTECT,
@@ -282,10 +281,10 @@ class TeacherAssignment(models.Model):
     )
     # Use the project’s configured user model
     teacher = models.ForeignKey(
-        "people.teacher",
-        on_delete=models.PROTECT,
+        "people.Teacher",
+        on_delete=models.CASCADE,    # was PROTECT
         related_name="teacher_assignments",
-    )
+)
 
     day_of_week = models.CharField(max_length=3, choices=DAY_CHOICES)  # Mon..Sun
     period = models.CharField(max_length=50)  # textual slot like "1st", "2nd"

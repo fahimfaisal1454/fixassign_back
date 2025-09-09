@@ -2,10 +2,6 @@ from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-<<<<<<< HEAD
-=======
-
->>>>>>> 59ccabdbf08e1d8d03a9ee50eb7c5c83315583ef
 from .models import (
     Period, Classroom, TimetableEntry,
     ExamRoutine, Syllabus, Result, Routine, GalleryItem, TeacherAssignment, 

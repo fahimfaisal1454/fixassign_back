@@ -48,6 +48,13 @@ class Student(models.Model):
     guardian_contact = models.CharField(max_length=20, blank=True)
     digital_id_code = models.CharField(max_length=100, unique=True)
 
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="student_profile",
+    )
+
     def __str__(self):
         return f"{self.full_name} ({self.roll_number})"
     
