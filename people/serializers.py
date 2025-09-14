@@ -61,28 +61,19 @@ class StaffSerializer(serializers.ModelSerializer):
 
 
 class StudentSerializer(serializers.ModelSerializer):
-    user_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), source="user", required=False, allow_null=True
-    )
-    user_username = serializers.SerializerMethodField()
-    
-    def get_user_username(self, obj):
-        return getattr(obj.user, "username", None)
-    def create(self, validated_data):
-        if "photo" in validated_data and validated_data["photo"]:
-            validated_data["photo"] = compress_image(validated_data["photo"], max_size_kb=200)
-        return super().create(validated_data)
-
-    
-   
-    def update(self, instance, validated_data):
-        if "photo" in validated_data and validated_data["photo"]:
-            validated_data["photo"] = compress_image(validated_data["photo"], max_size_kb=200)
-        return super().update(instance, validated_data)
+    class_name_label = serializers.CharField(source="class_name.name", read_only=True)
+    section_label    = serializers.CharField(source="section.name", read_only=True)
 
     class Meta:
         model = Student
-        fields = "__all__"
+        fields = [
+            "id", "full_name", "gender", "date_of_birth",
+            "class_name", "section", "class_name_label", "section_label",
+            "roll_number", "admission_no",
+            "guardian_name", "guardian_phone", "address", "photo",
+            "user", "created_at",
+        ]
+        read_only_fields = ["created_at"]
 
 
 class PrincipalListSerializer(serializers.ModelSerializer):

@@ -1,7 +1,5 @@
-# people/views.py
 from django.contrib.auth import get_user_model
 from django.db.models import Q
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -14,12 +12,16 @@ from .serializers import (
     StudentSerializer,
     PrincipalListSerializer,
     PresidentListSerializer,
-    StudentMiniSerializer
+    StudentMiniSerializer,
 )
+from academics.models import TeacherAssignment  # 🔑 Needed for teacher-student link
 
 User = get_user_model()
 
 
+# -------------------------------
+# Teacher
+# -------------------------------
 class TeacherViewSet(viewsets.ModelViewSet):
     """
     CRUD for Teacher profiles + link/unlink to login User accounts.
@@ -79,8 +81,10 @@ class TeacherViewSet(viewsets.ModelViewSet):
         # Enforce one-to-one: if this user is already linked to a different teacher, block
         existing = getattr(user, "teacher_profile", None)
         if existing and existing.id != teacher.id:
-            return Response({"detail": "This user is already linked to another teacher profile."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "This user is already linked to another teacher profile."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         teacher.user = user
         teacher.save()
@@ -97,23 +101,18 @@ class TeacherViewSet(viewsets.ModelViewSet):
         return Response(TeacherSerializer(teacher).data, status=status.HTTP_200_OK)
 
 
+# -------------------------------
+# Staff
+# -------------------------------
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.all().order_by("full_name")
     serializer_class = StaffSerializer
     permission_classes = [IsAuthenticated]
 
 
-from django.contrib.auth import get_user_model
-from rest_framework import status, viewsets
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-
-from .models import Student
-from .serializers import StudentSerializer, StudentMiniSerializer
-
-User = get_user_model()
-
+# -------------------------------
+# Student
+# -------------------------------
 class StudentViewSet(viewsets.ModelViewSet):
     """
     CRUD for Student profiles.
@@ -129,7 +128,8 @@ class StudentViewSet(viewsets.ModelViewSet):
         q = self.request.query_params.get("q")
         class_id = self.request.query_params.get("class_id")
         section_id = self.request.query_params.get("section_id")
-        linked = self.request.query_params.get("linked")  # NEW: true/false
+        linked = self.request.query_params.get("linked")  # true/false
+        mine = self.request.query_params.get("mine")  # 🔑 new: restrict to teacher’s classes
 
         if q:
             qs = qs.filter(full_name__icontains=q)
@@ -138,10 +138,21 @@ class StudentViewSet(viewsets.ModelViewSet):
         if section_id:
             qs = qs.filter(section_id=section_id)
 
-        # NEW: filter by linkage to a User (for the "unlinked" dropdown)
         if linked is not None:
             is_linked = str(linked).lower() in ("1", "true", "yes", "y")
             qs = qs.filter(user__isnull=not is_linked)
+
+        # 🔑 teacher mode (?mine=1)
+        if mine == "1":
+            teacher = getattr(self.request.user, "teacher_profile", None)
+            if teacher:
+                assigned = TeacherAssignment.objects.filter(teacher=teacher).values_list("class_name_id", "section_id")
+                filters = Q()
+                for c_id, s_id in set(assigned):
+                    filters |= Q(class_name_id=c_id, section_id=s_id)
+                qs = qs.filter(filters)
+            else:
+                qs = qs.none()
 
         return qs
 
@@ -160,16 +171,16 @@ class StudentViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Optional: enforce role == Student if your User has a role field
         role = getattr(user, "role", None)
         if role and str(role).lower() != "student":
             return Response({"detail": "Selected user is not a Student."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Enforce one-to-one (user can't already be linked to another student)
         existing = getattr(user, "student_profile", None)
         if existing and existing.id != student.id:
-            return Response({"detail": "This user is already linked to another student profile."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "This user is already linked to another student profile."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         student.user = user
         student.save(update_fields=["user"])
@@ -204,7 +215,9 @@ class StudentViewSet(viewsets.ModelViewSet):
         return Response(StudentMiniSerializer(students, many=True).data)
 
 
-
+# -------------------------------
+# Principal & President
+# -------------------------------
 class PrincipalListViewSet(viewsets.ModelViewSet):
     queryset = PrincipalList.objects.all().order_by("-to_date")
     serializer_class = PrincipalListSerializer
