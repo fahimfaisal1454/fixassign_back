@@ -117,7 +117,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     """
     CRUD for Student profiles.
     """
-    queryset = Student.objects.all().order_by("class_name", "section", "full_name")
+    # (You can keep your original order_by if you prefer ids. Using names is nicer in lists.)
+    queryset = Student.objects.all().order_by("class_name__name", "section__name", "full_name")
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
 
@@ -129,7 +130,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         class_id = self.request.query_params.get("class_id")
         section_id = self.request.query_params.get("section_id")
         linked = self.request.query_params.get("linked")  # true/false
-        mine = self.request.query_params.get("mine")  # 🔑 new: restrict to teacher’s classes
+        mine = self.request.query_params.get("mine")      # 🔑 restrict to teacher’s classes
 
         if q:
             qs = qs.filter(full_name__icontains=q)
@@ -142,15 +143,20 @@ class StudentViewSet(viewsets.ModelViewSet):
             is_linked = str(linked).lower() in ("1", "true", "yes", "y")
             qs = qs.filter(user__isnull=not is_linked)
 
-        # 🔑 teacher mode (?mine=1)
-        if mine == "1":
-            teacher = getattr(self.request.user, "teacher_profile", None)
+        # 🔑 teacher mode (?mine=1 / true / yes)
+        if mine and str(mine).lower() in ("1", "true", "yes", "y"):
+            teacher = getattr(self.request.user, "teacher_profile", None)  # used elsewhere in your codebase too
             if teacher:
-                assigned = TeacherAssignment.objects.filter(teacher=teacher).values_list("class_name_id", "section_id")
-                filters = Q()
-                for c_id, s_id in set(assigned):
-                    filters |= Q(class_name_id=c_id, section_id=s_id)
-                qs = qs.filter(filters)
+                assigned = TeacherAssignment.objects.filter(
+                    teacher=teacher
+                ).values_list("class_name_id", "section_id")
+                pairs = set(assigned)
+                if not pairs:
+                    return qs.none()
+                filt = Q()
+                for c_id, s_id in pairs:
+                    filt |= Q(class_name_id=c_id, section_id=s_id)
+                qs = qs.filter(filt)
             else:
                 qs = qs.none()
 
@@ -213,6 +219,32 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         students = self.get_queryset()
         return Response(StudentMiniSerializer(students, many=True).data)
+
+    @action(detail=False, methods=["get"], url_path="my-students")
+    def my_students(self, request):
+        """
+        Same scope as ?mine=1 but with a clean, named endpoint:
+        /api/people/students/my-students/
+        Returns mini rows for faster teacher pages.
+        """
+        teacher = getattr(request.user, "teacher_profile", None)
+        if not teacher:
+            return Response([], status=200)
+
+        assigned = TeacherAssignment.objects.filter(
+            teacher=teacher
+        ).values_list("class_name_id", "section_id")
+
+        pairs = set(assigned)
+        if not pairs:
+            return Response([], status=200)
+
+        filt = Q()
+        for c_id, s_id in pairs:
+            filt |= Q(class_name_id=c_id, section_id=s_id)
+
+        qs = Student.objects.filter(filt).order_by("class_name__name", "section__name", "roll_number")
+        return Response(StudentMiniSerializer(qs, many=True).data)
 
 
 # -------------------------------

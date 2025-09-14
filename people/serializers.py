@@ -37,11 +37,17 @@ class TeacherSerializer(serializers.ModelSerializer):
         fields = "__all__"  # includes user_id & user_username via extra fields above
 
 
+
 class StudentMiniSerializer(serializers.ModelSerializer):
     """Slim serializer for teacher views (attendance, student list, etc.)"""
+    class_name_label = serializers.CharField(source="class_name.name", read_only=True)
+    section_label = serializers.CharField(source="section.name", read_only=True)
+
     class Meta:
         model = Student
-        fields = ["id", "full_name", "roll_number", "class_name", "section", "photo"]
+        fields = ["id", "full_name", "roll_number", "class_name", "section", "photo",
+                  "class_name_label", "section_label"]
+
 
 
 class StaffSerializer(serializers.ModelSerializer):
