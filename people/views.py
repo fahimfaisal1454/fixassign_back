@@ -117,10 +117,9 @@ class StudentViewSet(viewsets.ModelViewSet):
     """
     CRUD for Student profiles.
 
-    NOTES:
-    - We intentionally removed the legacy `?mine=1` path to avoid ambiguity.
-    - Use the named action `/api/people/students/my-students/` for teacher-scoped lists.
-      Add `?detail=1` if you need full records instead of the mini serializer.
+    Teacher-scoped list:
+      GET /api/people/students/my-students/            -> mini rows (fast)
+      GET /api/people/students/my-students/?detail=1   -> full rows
     """
     queryset = Student.objects.all().order_by("class_name__name", "section__name", "full_name")
     serializer_class = StudentSerializer
@@ -129,16 +128,11 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
 
-        # Optional search/filter params
+        # Optional search/filter params (no 'mine' here)
         q = self.request.query_params.get("q")
         class_id = self.request.query_params.get("class_id")
         section_id = self.request.query_params.get("section_id")
         linked = self.request.query_params.get("linked")  # true/false
-        mine = self.request.query_params.get("mine")      # <-- deprecated
-
-        # Guard against old callers still using ?mine=1
-        if mine is not None:
-            return qs.none()  # or raise a 410 if you prefer to make it explicit
 
         if q:
             qs = qs.filter(full_name__icontains=q)
@@ -154,9 +148,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="link-user")
     def link_user(self, request, pk=None):
-        """
-        Link this student profile to an existing User (expects { "user_id": <id> }).
-        """
+        """Link this student profile to an existing User (expects { "user_id": <id> })."""
         student = self.get_object()
         user_id = request.data.get("user_id")
         if not user_id:
@@ -184,9 +176,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="unlink-user")
     def unlink_user(self, request, pk=None):
-        """
-        Remove any linked User from this student profile.
-        """
+        """Remove any linked User from this student profile."""
         student = self.get_object()
         student.user = None
         student.save(update_fields=["user"])
@@ -194,9 +184,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
-        """
-        Return the Student record linked to the logged-in user.
-        """
+        """Return the Student record linked to the logged-in user."""
         student = Student.objects.filter(user=request.user).first()
         if not student:
             return Response({"detail": "No student profile linked."}, status=404)
@@ -204,9 +192,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="mini")
     def mini(self, request):
-        """
-        Return a slimmed down list (useful for attendance lists, teacher views, etc.)
-        """
+        """Return a slimmed down list (useful for attendance lists, teacher views, etc.)"""
         students = self.get_queryset()
         return Response(StudentMiniSerializer(students, many=True).data)
 
@@ -214,10 +200,6 @@ class StudentViewSet(viewsets.ModelViewSet):
     def my_students(self, request):
         """
         Canonical endpoint for a teacher's students.
-
-        GET /api/people/students/my-students/          -> mini rows (fast)
-        GET /api/people/students/my-students/?detail=1 -> full rows
-
         Uses TeacherAssignment to gather (class_name, section) pairs owned by the logged-in teacher.
         """
         teacher = getattr(request.user, "teacher_profile", None)
