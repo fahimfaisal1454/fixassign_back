@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, TeacherAssignment
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, 
 )
 from master.models import ClassName, Section, Subject
 
@@ -29,24 +29,12 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
 
 class TimetableEntrySerializer(serializers.ModelSerializer):
-    # writable FKs (frontend sends IDs)
-    class_name = serializers.PrimaryKeyRelatedField(queryset=ClassName.objects.all())
-    section = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all())
-    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
-    teacher = serializers.PrimaryKeyRelatedField(
-        queryset=Teacher.objects.all(), required=False, allow_null=True
-    )
-    classroom = serializers.PrimaryKeyRelatedField(
-        queryset=Classroom.objects.all(), required=False, allow_null=True
-    )
-
-    # readable labels for UI
+    # labels for UI
     class_name_label = serializers.CharField(source="class_name.name", read_only=True)
     section_label = serializers.CharField(source="section.name", read_only=True)
     subject_label = serializers.CharField(source="subject.name", read_only=True)
     teacher_label = serializers.CharField(source="teacher.__str__", read_only=True)
     classroom_label = serializers.CharField(source="classroom.name", read_only=True)
-
     day_of_week_display = serializers.CharField(
         source="get_day_of_week_display", read_only=True
     )
@@ -55,31 +43,20 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
         model = TimetableEntry
         fields = [
             "id",
-
-            # writable FKs
-            "class_name", "section", "subject", "teacher", "classroom",
-
-            # readable labels
-            "class_name_label", "section_label", "subject_label",
-            "teacher_label", "classroom_label",
-
+            "class_name", "class_name_label",
+            "section", "section_label",
+            "subject", "subject_label",
+            "teacher", "teacher_label",
+            "classroom", "classroom_label",
             "day_of_week", "day_of_week_display",
             "period",
             "start_time", "end_time",
-
-            # legacy text room (optional; prefer classroom FK)
-            "room",
-
-            "created_at",
         ]
-        read_only_fields = ["created_at"]
 
-    # Ensure model-level clean() runs so conflicts return as DRF errors
     def _full_clean_or_raise(self, instance):
         try:
             instance.full_clean()
         except DjangoValidationError as e:
-            # Convert Django ValidationError to DRF ValidationError (field-wise if possible)
             raise serializers.ValidationError(e.message_dict or e.messages)
 
     def create(self, validated_data):
@@ -131,52 +108,3 @@ class GalleryItemSerializer(serializers.ModelSerializer):
 
 
 
-class TeacherAssignmentSerializer(serializers.ModelSerializer):
-    # writable FKs
-    class_name = serializers.PrimaryKeyRelatedField(queryset=ClassName.objects.all())
-    section = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all())
-    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all())
-    teacher = serializers.PrimaryKeyRelatedField(queryset=Teacher.objects.all())
-
-    # readable labels for UI
-    class_name_label = serializers.CharField(source="class_name.name", read_only=True)
-    section_label = serializers.CharField(source="section.name", read_only=True)
-    subject_label = serializers.CharField(source="subject.name", read_only=True)
-    teacher_label = serializers.CharField(source="teacher.full_name", read_only=True)
-    day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
-
-    def get_teacher_label(self, obj):
-        full = getattr(obj.teacher, "get_full_name", lambda: "")() or ""
-        if full:
-            return full
-        # fallback to username/email
-        return getattr(obj.teacher, "username", None) or getattr(obj.teacher, "email", None) or f"User #{obj.teacher_id}"
-
-    class Meta:
-        model = TeacherAssignment
-        fields = [
-            "id",
-            "class_name", "class_name_label",
-            "section", "section_label",
-            "subject", "subject_label",
-            "teacher", "teacher_label",
-            "day_of_week", "day_of_week_display",
-            "period",
-            "room",
-            "created_at",
-        ]
-        read_only_fields = ["created_at"]
-
-    def validate(self, attrs):
-        """
-        Extra server-side checks (fast fail with readable messages).
-        DB constraints still protect at the database layer.
-        """
-        class_name = attrs.get("class_name") or getattr(self.instance, "class_name", None)
-        section = attrs.get("section") or getattr(self.instance, "section", None)
-        subject = attrs.get("subject") or getattr(self.instance, "subject", None)
-
-        if subject and class_name and getattr(subject, "class_name_id", None) != class_name.id:
-            raise serializers.ValidationError({"subject": "Subject must belong to the selected class."})
-
-        return attrs

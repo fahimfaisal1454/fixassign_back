@@ -14,7 +14,7 @@ from .serializers import (
     PresidentListSerializer,
     StudentMiniSerializer,
 )
-from academics.models import TeacherAssignment  # 🔑 Needed for teacher-student link
+
 
 User = get_user_model()
 

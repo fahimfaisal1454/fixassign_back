@@ -5,7 +5,7 @@ from .views import (
     ClassNameViewSet, 
     PeriodViewSet, ClassroomViewSet, TimetableEntryViewSet,
     ExamRoutineViewSet, SyllabusViewSet, ResultViewSet, RoutineViewSet,
-    GalleryItemViewSet, TeacherAssignmentViewSet,
+    GalleryItemViewSet
 )
 
 router = DefaultRouter()
@@ -13,8 +13,7 @@ router = DefaultRouter()
 # Lookups for frontend
 router.register(r"class-names", ClassNameViewSet, basename="class-name")
 
-# NEW: assign-teachers
-router.register(r"assign-teachers", TeacherAssignmentViewSet, basename="assign-teacher")
+
 
 # Core academic endpoints
 router.register(r"periods", PeriodViewSet, basename="period")
