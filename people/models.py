@@ -48,7 +48,7 @@ class Student(models.Model):
     # FKs to master data
     class_name  = models.ForeignKey("master.ClassName", on_delete=models.PROTECT, related_name="students")
     section     = models.ForeignKey("master.Section", on_delete=models.PROTECT, related_name="students",
-                                    null=True, blank=True)  # <-- make optional
+                                    null=False, blank=False)  # <-- make optional
 
     roll_number = models.PositiveIntegerField()
     admission_no= models.CharField(max_length=64, unique=True, blank=True, null=True)
