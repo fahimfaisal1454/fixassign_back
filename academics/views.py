@@ -81,6 +81,7 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
       &day_of_week=  (Mon|Tue|...)
       &classroom=    (Classroom pk)
       &student=me    (auto filter by logged-in student's class & section)
+      &teacher=me    (auto filter by logged-in teacher)
 
     Extra endpoint:
       /api/timetable/week?[filters]
@@ -114,7 +115,13 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
         if teacher_id:
-            qs = qs.filter(teacher_id=teacher_id)
+            if teacher_id == "me":
+                teacher = Teacher.objects.filter(user=self.request.user).first()
+                if not teacher:
+                    return qs.none()
+                qs = qs.filter(teacher=teacher)
+            else:
+                qs = qs.filter(teacher_id=teacher_id)
         if day:
             if day not in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}:
                 return qs.none()
@@ -128,6 +135,12 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
             if not stu:
                 return qs.none()
             qs = qs.filter(class_name=stu.class_name, section=stu.section)
+
+        # 🔒 Default: if no teacher filter provided but logged-in user *is* a teacher
+        if not teacher_id and not q.get("student"):
+            teacher = Teacher.objects.filter(user=self.request.user).first()
+            if teacher:
+                qs = qs.filter(teacher=teacher)
 
         return qs.order_by("day_of_week", "start_time", "period")
 
