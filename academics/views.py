@@ -72,21 +72,7 @@ class ClassroomViewSet(viewsets.ModelViewSet):
 
 
 class TimetableEntryViewSet(viewsets.ModelViewSet):
-    """
-    /api/timetable/
-      ?class_name=   (ClassName pk)
-      &section=      (Section pk)
-      &subject=      (Subject pk)
-      &teacher_id=   (Teacher pk)
-      &day_of_week=  (Mon|Tue|...)
-      &classroom=    (Classroom pk)
-      &student=me    (auto filter by logged-in student's class & section)
-      &teacher=me    (auto filter by logged-in teacher)
 
-    Extra endpoint:
-      /api/timetable/week?[filters]
-        → returns entries grouped by day (Mon–Sun)
-    """
     queryset = (
         TimetableEntry.objects
         .select_related("class_name", "section", "subject", "teacher", "classroom")
@@ -104,9 +90,10 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         class_name = q.get("class_name") or q.get("class_id")
         section = q.get("section") or q.get("section_id")
         subject_id = q.get("subject") or q.get("subject_id")
-        teacher_id = q.get("teacher_id") or q.get("teacher")
+        user_id = q.get("user_id") or q.get("teacher")
         day = q.get("day_of_week") or q.get("day")
         classroom_id = q.get("classroom") or q.get("classroom_id")
+      
 
         if class_name:
             qs = qs.filter(class_name_id=class_name)
@@ -114,14 +101,13 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
             qs = qs.filter(section_id=section)
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
-        if teacher_id:
-            if teacher_id == "me":
-                teacher = Teacher.objects.filter(user=self.request.user).first()
-                if not teacher:
-                    return qs.none()
-                qs = qs.filter(teacher=teacher)
-            else:
-                qs = qs.filter(teacher_id=teacher_id)
+            
+        
+        if user_id:
+            teacher = Teacher.objects.filter(user_id=user_id).first()
+            qs = qs.filter(teacher=teacher)
+            print("Filtered queryset:",list(qs.values()))
+            
         if day:
             if day not in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}:
                 return qs.none()
@@ -137,7 +123,7 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
             qs = qs.filter(class_name=stu.class_name, section=stu.section)
 
         # 🔒 Default: if no teacher filter provided but logged-in user *is* a teacher
-        if not teacher_id and not q.get("student"):
+        if not user_id and not q.get("student"):
             teacher = Teacher.objects.filter(user=self.request.user).first()
             if teacher:
                 qs = qs.filter(teacher=teacher)
@@ -146,11 +132,6 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def week(self, request):
-        """
-        GET /api/timetable/week?[filters]
-        Returns entries grouped by day (Mon–Sun).
-        Supports same filters as list().
-        """
         entries = self.get_queryset()
         serializer = TimetableEntrySerializer(entries, many=True)
 

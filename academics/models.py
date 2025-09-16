@@ -28,9 +28,6 @@ class Period(models.Model):
 
 
 class Classroom(models.Model):
-    """
-    A physical room.
-    """
     name = models.CharField(max_length=50, unique=True)  # "101", "Lab-A"
     capacity = models.PositiveIntegerField(null=True, blank=True)
 
@@ -46,10 +43,6 @@ class Classroom(models.Model):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TimetableEntry(models.Model):
-    """
-    A single row in the class timetable with optional teacher & room.
-    """
-
     DAY_CHOICES = [
         ("Mon", "Monday"),
         ("Tue", "Tuesday"),
@@ -60,29 +53,10 @@ class TimetableEntry(models.Model):
         ("Sun", "Sunday"),
     ]
 
-    class_name = models.ForeignKey(
-        "master.ClassName",
-        on_delete=models.PROTECT,
-        related_name="timetable_rows",
-    )
-    section = models.ForeignKey(
-        "master.Section",
-        on_delete=models.PROTECT,
-        related_name="timetable_rows",
-    )
-    subject = models.ForeignKey(
-        "master.Subject",
-        on_delete=models.PROTECT,
-        related_name="timetable_rows",
-    )
-
-    # NEW: optional teacher & classroom
-    teacher = models.ForeignKey(
-        "people.Teacher",
-        on_delete=models.SET_NULL,   # was PROTECT
-        null=True, blank=True,
-        related_name="timetable_rows",
-)
+    class_name = models.ForeignKey( "master.ClassName",on_delete=models.PROTECT, related_name="timetable_rows")
+    section = models.ForeignKey( "master.Section",on_delete=models.PROTECT, related_name="timetable_rows")
+    subject = models.ForeignKey( "master.Subject", on_delete=models.PROTECT, related_name="timetable_rows")
+    teacher = models.ForeignKey( "people.Teacher", on_delete=models.SET_NULL,  null=True, blank=True, related_name="timetable_rows")
     classroom = models.ForeignKey(
         Classroom,
         on_delete=models.PROTECT,
