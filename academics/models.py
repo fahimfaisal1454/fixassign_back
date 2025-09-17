@@ -57,13 +57,7 @@ class TimetableEntry(models.Model):
     section = models.ForeignKey( "master.Section",on_delete=models.PROTECT, related_name="timetable_rows")
     subject = models.ForeignKey( "master.Subject", on_delete=models.PROTECT, related_name="timetable_rows")
     teacher = models.ForeignKey( "people.Teacher", on_delete=models.SET_NULL,  null=True, blank=True, related_name="timetable_rows")
-    classroom = models.ForeignKey(
-        Classroom,
-        on_delete=models.PROTECT,
-        related_name="timetable_rows",
-        null=True,
-        blank=True,
-    )
+    classroom = models.ForeignKey(Classroom,on_delete=models.PROTECT,related_name="timetable_rows",null=True,blank=True, )
 
     day_of_week = models.CharField(max_length=3, choices=DAY_CHOICES)  # Mon..Sun
     period = models.CharField(max_length=50, blank=True)               # "1st", "2nd" (optional)
