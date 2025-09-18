@@ -3,17 +3,19 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
+from django.core.exceptions import FieldError
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, 
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord
 )
 from .serializers import (
     PeriodSerializer, ClassroomSerializer, TimetableEntrySerializer,
     ExamRoutineSerializer, SyllabusSerializer, ResultSerializer, RoutineSerializer,
-    GalleryItemSerializer
+    GalleryItemSerializer, AttendanceRecordSerializer
 )
 from master.models import ClassName, Subject
 from people.models import Student, Teacher
+from django.utils.dateparse import parse_date
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Lightweight lookups for frontend (classes & subjects)
@@ -181,3 +183,189 @@ class GalleryItemViewSet(viewsets.ModelViewSet):
     serializer_class = GalleryItemSerializer
 
 
+
+
+def _has_field(model, fname: str) -> bool:
+    return any(getattr(f, "name", None) == fname for f in model._meta.get_fields())
+
+
+class AttendanceViewSet(viewsets.ModelViewSet):
+    lookup_value_regex = r"\d+"  # avoids 'roster' being parsed as a pk
+    permission_classes = [IsAuthenticated]
+
+    queryset = (
+        AttendanceRecord.objects
+        .select_related(
+            "timetable",
+            "timetable__class_name",
+            "timetable__section",
+            "timetable__subject",
+            "timetable__teacher",
+            "student",
+        )
+        .all()
+    )
+    serializer_class = AttendanceRecordSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params
+
+        date = q.get("date")
+        timetable_id = q.get("timetable_id")
+        class_id = q.get("class_name") or q.get("class_id")
+        section_id = q.get("section") or q.get("section_id")
+        subject_id = q.get("subject") or q.get("subject_id")
+        # date_gte = q.get("date__gte")
+        # date_lte = q.get("date__lte")
+
+        if date:
+            qs = qs.filter(date=date)
+        if timetable_id:
+            qs = qs.filter(timetable_id=timetable_id)
+        if class_id:
+            qs = qs.filter(timetable__class_name_id=class_id)
+        if section_id:
+            qs = qs.filter(timetable__section_id=section_id)
+        if subject_id:
+            qs = qs.filter(timetable__subject_id=subject_id)
+        # if date_gte:
+        #     qs = qs.filter(date__gte=date_gte)
+        # if date_lte:
+        #     qs = qs.filter(date__lte=date_lte)
+
+
+        # default: teachers only see their own records unless a timetable is specified
+        teacher = Teacher.objects.filter(user=self.request.user).first()
+        if teacher and not timetable_id:
+            qs = qs.filter(timetable__teacher=teacher)
+
+        return qs
+
+    @action(detail=False, methods=["get", "post"], url_path="roster")
+    def roster(self, request):
+        if request.method.lower() == "get":
+            return self._roster_get(request)
+        return self._roster_post(request)
+
+    # -------- GET /attendance/roster/ --------
+    def _roster_get(self, request):
+        timetable_id = request.query_params.get("timetable_id")
+        date = parse_date(request.query_params.get("date") or "")
+        if not timetable_id or not date:
+            return Response({"detail": "timetable_id and date are required."}, status=400)
+
+        timetable = (
+            TimetableEntry.objects
+            .select_related("teacher", "class_name", "section", "subject")
+            .filter(id=timetable_id)
+            .first()
+        )
+        if not timetable:
+            return Response({"detail": "Invalid timetable id."}, status=404)
+
+        # auth: assigned teacher or admin
+        if not request.user.is_superuser:
+            teacher = getattr(timetable, "teacher", None)
+            if not teacher or teacher.user_id != request.user.id:
+                return Response({"detail": "Not allowed."}, status=403)
+
+        # build student filters (works whether Student stores FK or CharField for class/section)
+        student_filters = {}
+        if _has_field(Student, "class_name"):
+            student_filters["class_name"] = timetable.class_name
+        elif _has_field(Student, "student_class"):
+            student_filters["student_class"] = timetable.class_name
+
+        if _has_field(Student, "section"):
+            student_filters["section"] = timetable.section
+        elif _has_field(Student, "student_section"):
+            student_filters["student_section"] = timetable.section
+
+        try:
+            students = Student.objects.filter(**student_filters)
+        except FieldError:
+            students = Student.objects.all()
+
+        students = students.order_by("roll_no", "id") if _has_field(Student, "roll_no") else students.order_by("id")
+
+        # existing marks
+        existing = {
+            r.student_id: r
+            for r in AttendanceRecord.objects.filter(timetable=timetable, date=date)
+        }
+
+        rows = []
+        for s in students:
+            rec = existing.get(s.id)
+            rows.append({
+                "student": s.id,
+                "student_name": str(s),
+                "status": rec.status if rec else "PRESENT",
+                "remarks": rec.remarks if rec else "",
+                "attendance_id": rec.id if rec else None,
+            })
+
+        def label(x):
+            return getattr(x, "name", str(x))
+
+        return Response({
+            "timetable": {
+                "id": timetable.id,
+                "class_name": label(getattr(timetable, "class_name", "")),
+                "section": label(getattr(timetable, "section", "")),
+                "subject": label(getattr(timetable, "subject", "")),
+            },
+            "date": str(date),
+            "rows": rows
+        }, status=200)
+
+    # -------- POST /attendance/roster/ --------
+    def _roster_post(self, request):
+        body = request.data or {}
+        timetable_id = body.get("timetable") or body.get("timetable_id")
+        date = parse_date((body.get("date") or "").strip())
+        rows = body.get("rows")
+
+        if not timetable_id or not date or not isinstance(rows, list):
+            return Response(
+                {"detail": "timetable (or timetable_id), date and rows[] are required."},
+                status=400,
+            )
+
+        timetable = TimetableEntry.objects.select_related("teacher").filter(id=timetable_id).first()
+        if not timetable:
+            return Response({"detail": "Invalid timetable id."}, status=404)
+
+        # auth: assigned teacher or admin
+        if not request.user.is_superuser:
+            teacher = getattr(timetable, "teacher", None)
+            if not teacher or teacher.user_id != request.user.id:
+                return Response({"detail": "Not allowed."}, status=403)
+
+        valid_status = {"PRESENT", "ABSENT", "LATE", "EXCUSED"}
+        created, updated = 0, 0
+
+        for r in rows:
+            sid = r.get("student")
+            if not sid:
+                continue
+            status_val = (r.get("status") or "PRESENT").upper()
+            if status_val not in valid_status:
+                status_val = "PRESENT"
+            remarks = r.get("remarks") or ""
+
+            obj, was_created = AttendanceRecord.objects.update_or_create(
+                timetable=timetable,
+                date=date,
+                student_id=sid,
+                defaults={
+                    "status": status_val,
+                    "remarks": remarks,
+                    "marked_by": request.user,
+                },
+            )
+            created += 1 if was_created else 0
+            updated += 0 if was_created else 1
+
+        return Response({"ok": True, "created": created, "updated": updated}, status=200)

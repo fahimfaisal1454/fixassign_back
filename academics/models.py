@@ -217,3 +217,28 @@ class GalleryItem(models.Model):
 
 
 
+
+class AttendanceRecord(models.Model):
+    STATUS_CHOICES = [
+        ("PRESENT", "Present"),
+        ("ABSENT", "Absent"),
+        ("LATE", "Late"),
+        ("EXCUSED", "Excused"),
+    ]
+
+    timetable = models.ForeignKey("academics.TimetableEntry", on_delete=models.PROTECT, related_name="attendance_records")
+    date = models.DateField()
+    student = models.ForeignKey("people.Student", on_delete=models.CASCADE, related_name="attendance_records")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="PRESENT")
+    remarks = models.CharField(max_length=255, blank=True)
+    marked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="marked_attendance")
+    marked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["timetable", "date", "student"], name="uniq_attendance_row")
+        ]
+        ordering = ["-date", "timetable_id", "student_id"]
+
+    def __str__(self):
+        return f"{self.date} • {self.timetable} • {self.student} • {self.status}"

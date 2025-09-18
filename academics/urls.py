@@ -5,7 +5,7 @@ from .views import (
     ClassNameViewSet, 
     PeriodViewSet, ClassroomViewSet, TimetableEntryViewSet,
     ExamRoutineViewSet, SyllabusViewSet, ResultViewSet, RoutineViewSet,
-    GalleryItemViewSet
+    GalleryItemViewSet, AttendanceViewSet
 )
 
 router = DefaultRouter()
@@ -27,6 +27,7 @@ router.register(r"syllabus", SyllabusViewSet, basename="syllabus")
 router.register(r"results", ResultViewSet, basename="result")
 router.register(r"routines", RoutineViewSet, basename="routine")
 router.register(r"gallery", GalleryItemViewSet, basename="gallery")
+router.register(r"attendance", AttendanceViewSet, basename="attendance")
 
 urlpatterns = [
     path("", include(router.urls)),

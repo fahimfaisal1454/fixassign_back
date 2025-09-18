@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, 
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord
 )
 from master.models import ClassName, Section, Subject
 
@@ -108,3 +108,50 @@ class GalleryItemSerializer(serializers.ModelSerializer):
 
 
 
+class AttendanceRecordSerializer(serializers.ModelSerializer):
+    class_name = serializers.CharField(source="timetable.class_name.name", read_only=True)
+    section = serializers.CharField(source="timetable.section.name", read_only=True)
+    subject = serializers.CharField(source="timetable.subject.name", read_only=True)
+    
+    class_id = serializers.IntegerField(source="timetable.class_name_id", read_only=True)
+    section_id = serializers.IntegerField(source="timetable.section_id", read_only=True)
+    subject_id = serializers.IntegerField(source="timetable.subject_id", read_only=True)
+    
+    teacher = serializers.CharField(source="timetable.teacher.__str__", read_only=True)
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+
+    class Meta:
+            model = AttendanceRecord
+            fields = [
+                "id", "date", "status", "remarks",
+                "timetable",
+                "class_id", "class_name",
+                "section_id", "section",
+                "subject_id", "subject",
+                "teacher",
+                "student", "student_name",
+                "marked_by", "marked_at",
+            ]
+            read_only_fields = [
+                "marked_by", "marked_at",
+                "class_id", "class_name",
+                "section_id", "section",
+                "subject_id", "subject",
+                "teacher", "student_name",
+            ]
+
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        # handle create vs update safely
+        timetable = attrs.get("timetable") or (self.instance.timetable if getattr(self, "instance", None) else None)
+
+        if not request.user.is_superuser:
+            teacher = getattr(timetable, "teacher", None) if timetable else None
+            if not teacher or teacher.user_id != request.user.id:
+                raise serializers.ValidationError("You are not allowed to mark attendance for this class.")
+        return attrs
+
+    def create(self, validated_data):
+        validated_data["marked_by"] = self.context["request"].user
+        return super().create(validated_data)
