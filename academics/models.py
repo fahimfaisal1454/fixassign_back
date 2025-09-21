@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, F, CheckConstraint, UniqueConstraint, Index
 from django.core.exceptions import ValidationError
 from django.conf import settings
 
@@ -258,7 +258,25 @@ class GradeScale(models.Model):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
 
 
+class GradeScale(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        # keep only one scale active
+        if self.is_active:
+            GradeScale.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
+
 class GradeBand(models.Model):
+    """
+    Non-overlapping, unique grade bands within a GradeScale.
+    Example (0–100): A+ 80–100, A 70–79, ...
+    """
     scale = models.ForeignKey(GradeScale, on_delete=models.CASCADE, related_name="bands")
     min_score = models.PositiveIntegerField()
     max_score = models.PositiveIntegerField()
@@ -268,15 +286,60 @@ class GradeBand(models.Model):
     class Meta:
         ordering = ["-min_score"]
         constraints = [
-            models.CheckConstraint(
-                check=models.Q(min_score__lte=models.F("max_score")),
+            # min ≤ max
+            CheckConstraint(
+                check=Q(min_score__lte=F("max_score")),
                 name="grades_min_le_max",
-            )
+            ),
+            # keep inside 0–100 (adjust if your total isn’t 100)
+            CheckConstraint(
+                check=Q(min_score__gte=0) & Q(max_score__lte=100),
+                name="grades_within_0_100",
+            ),
+            # one letter per scale
+            UniqueConstraint(
+                fields=["scale", "letter"],
+                name="uniq_scale_letter",
+            ),
+            # prevent exact duplicate range within same scale
+            UniqueConstraint(
+                fields=["scale", "min_score", "max_score"],
+                name="uniq_scale_exact_range",
+            ),
         ]
+        indexes = [
+            Index(fields=["scale", "min_score", "max_score"], name="idx_scale_range"),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if self.min_score > self.max_score:
+            raise ValidationError("min_score cannot be greater than max_score.")
+
+        # Overlap rule (same scale):
+        # existing.min ≤ self.max  AND  existing.max ≥ self.min
+        overlap_q = Q(min_score__lte=self.max_score) & Q(max_score__gte=self.min_score)
+        clash = (
+            GradeBand.objects
+            .filter(scale=self.scale)
+            .exclude(pk=self.pk)
+            .filter(overlap_q)
+            .first()
+        )
+        if clash:
+            raise ValidationError(
+                f"This range ({self.min_score}-{self.max_score}) overlaps with "
+                f"{clash.letter} ({clash.min_score}-{clash.max_score}) in the same scale."
+            )
 
     def __str__(self):
         return f"{self.letter} {self.min_score}-{self.max_score} → {self.gpa}"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Exams & marks
+# ─────────────────────────────────────────────────────────────────────────────
 
 class Exam(models.Model):
     class_name = models.ForeignKey("master.ClassName", on_delete=models.CASCADE)
@@ -307,7 +370,11 @@ class ExamMark(models.Model):
         # subject must belong to exam.class_name
         if getattr(self.subject, "class_name_id", None) != self.exam.class_name_id:
             raise ValidationError("Subject does not belong to the exam’s class.")
-        # TODO: you may also assert student belongs to that class/section if your Student model has those FKs.
+
+        # ✅ Ensure the student belongs to the same class/section as the exam
+        stu = self.student
+        if getattr(stu, "class_name_id", None) != self.exam.class_name_id or getattr(stu, "section_id", None) != self.exam.section_id:
+            raise ValidationError("Student is not in the class/section for this exam.")
 
     def _apply_grade(self):
         scale = GradeScale.objects.filter(is_active=True).first()
@@ -319,6 +386,10 @@ class ExamMark(models.Model):
         if band:
             self.gpa = band.gpa
             self.letter = band.letter
+        else:
+            # score falls outside bands (e.g., no coverage); clear grade
+            self.gpa = None
+            self.letter = ""
 
     def save(self, *args, **kwargs):
         self.full_clean()
