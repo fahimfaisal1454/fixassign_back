@@ -15,12 +15,44 @@ class ClassNameSerializer(serializers.ModelSerializer):
     sections = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Section.objects.all(), required=False
     )
-    # nice read-only info for tables
+    # nice read-only detail list for tables
     sections_detail = SectionSerializer(source="sections", many=True, read_only=True)
+
+    # convenience read-only label e.g. "Class 2 [2025]"
+    label = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ClassName
-        fields = ["id", "name", "sections", "sections_detail"]
+        fields = [
+            "id",
+            "name",
+            "year",              # <-- important
+            "sections",
+            "sections_detail",
+            "label",
+        ]
+
+    def get_label(self, obj):
+        return f"{obj.name} [{obj.year}]"
+
+    def validate_year(self, value):
+        if value and (value < 1900 or value > 3000):
+            raise serializers.ValidationError("Year must look like a calendar year (e.g., 2025).")
+        return value
+
+    def validate(self, attrs):
+        """
+        Pre-empt the (name, year) uniqueness to give a nicer error than IntegrityError.
+        """
+        name = attrs.get("name", getattr(self.instance, "name", None))
+        year = attrs.get("year", getattr(self.instance, "year", None))
+        if name and year:
+            qs = ClassName.objects.filter(name=name, year=year)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("This class name already exists for the selected year.")
+        return attrs
 
     def create(self, validated_data):
         sections = validated_data.pop("sections", [])

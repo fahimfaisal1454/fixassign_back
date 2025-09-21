@@ -4,7 +4,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord,
+    GradeScale, GradeBand, Exam, ExamMark
 )
 from master.models import ClassName, Section, Subject
 
@@ -155,3 +156,70 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["marked_by"] = self.context["request"].user
         return super().create(validated_data)
+    
+
+
+class GradeBandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GradeBand
+        fields = "__all__"
+
+
+class GradeScaleSerializer(serializers.ModelSerializer):
+    bands = GradeBandSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = GradeScale
+        fields = ["id", "name", "is_active", "bands"]
+
+
+class ExamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Exam
+        fields = "__all__"
+
+
+class ExamMarkSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    exam_name = serializers.CharField(source="exam.name", read_only=True)
+
+    class Meta:
+        model = ExamMark
+        fields = [
+            "id",
+            "exam", "exam_name",
+            "student", "student_name",
+            "subject", "subject_name",
+            "score", "gpa", "letter",
+        ]
+        read_only_fields = ["gpa", "letter"]
+
+    def validate(self, attrs):
+        """
+        Restrict teachers to enter marks only for subjects/classes they teach.
+        Admin/staff can bypass.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        exam = attrs.get("exam") or getattr(self.instance, "exam", None)
+        subject = attrs.get("subject") or getattr(self.instance, "subject", None)
+
+        if not (exam and subject) or not user:
+            return attrs
+
+        if not (user.is_superuser or user.is_staff):
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                ok = TimetableEntry.objects.filter(
+                    teacher=teacher,
+                    class_name=exam.class_name,
+                    section=exam.section,
+                    subject=subject,
+                ).exists()
+                if not ok:
+                    raise serializers.ValidationError(
+                        "You can only enter marks for your assigned subject/class/section."
+                    )
+        return attrs  

@@ -1,22 +1,25 @@
 from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.core.exceptions import FieldError
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord, GradeScale, GradeBand, Exam, ExamMark
+
 )
 from .serializers import (
     PeriodSerializer, ClassroomSerializer, TimetableEntrySerializer,
     ExamRoutineSerializer, SyllabusSerializer, ResultSerializer, RoutineSerializer,
-    GalleryItemSerializer, AttendanceRecordSerializer
+    GalleryItemSerializer, AttendanceRecordSerializer, GradeScaleSerializer, GradeBandSerializer,
+    ExamSerializer, ExamMarkSerializer,
 )
 from master.models import ClassName, Subject
 from people.models import Student, Teacher
 from django.utils.dateparse import parse_date
-
+from calendar import monthrange
+from datetime import date as D, timedelta
 # ─────────────────────────────────────────────────────────────────────────────
 # Lightweight lookups for frontend (classes & subjects)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -287,7 +290,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         except FieldError:
             students = Student.objects.all()
 
-        students = students.order_by("roll_no", "id") if _has_field(Student, "roll_no") else students.order_by("id")
+        students = students.order_by("roll_number", "id") if _has_field(Student, "roll_number") else students.order_by("id")
 
         # existing marks
         existing = {
@@ -369,3 +372,155 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             updated += 0 if was_created else 1
 
         return Response({"ok": True, "created": created, "updated": updated}, status=200)
+    
+    @action(detail=False, methods=["get"], url_path="report")
+    def report(self, request):
+        q = request.query_params
+        class_id = q.get("class_id") or q.get("class_name")
+        section_id = q.get("section_id") or q.get("section")
+        subject_id = q.get("subject_id") or q.get("subject")  # optional
+        if not class_id or not section_id:
+            return Response({"detail": "class_id and section_id are required."}, status=400)
+
+        # allow month+year OR start+end
+        if q.get("start") and q.get("end"):
+            start, end = D.fromisoformat(q["start"]), D.fromisoformat(q["end"])
+        else:
+            try:
+                month, year = int(q.get("month")), int(q.get("year"))
+                start, end = D(year, month, 1), D(year, month, monthrange(year, month)[1])
+            except Exception:
+                return Response({"detail": "Provide start & end, or month & year."}, status=400)
+
+        # scope non-admin teachers to their own classes
+        from people.models import Teacher, Student
+        from master.models import ClassName, Section, Subject
+        from .models import AttendanceRecord
+
+        teacher = Teacher.objects.filter(user=request.user).first()
+        tfilter = {"timetable__teacher": teacher} if teacher and not request.user.is_superuser else {}
+
+        students = Student.objects.filter(class_name_id=class_id, section_id=section_id).order_by("roll_number", "id")
+        sids = list(students.values_list("id", flat=True))
+
+        qs = AttendanceRecord.objects.filter(date__range=(start, end), student_id__in=sids, **tfilter)
+        if subject_id:
+            qs = qs.filter(timetable__subject_id=subject_id)
+
+        # map: {sid: {date: status}}
+        rec_map = {}
+        for r in qs.only("student_id", "date", "status"):
+            rec_map.setdefault(r.student_id, {})[r.date] = r.status
+
+        days = (end - start).days + 1
+        headers = [(start + timedelta(days=i)).strftime("%d %a") for i in range(days)]
+        code = {"PRESENT":"P","ABSENT":"A","LATE":"L","EXCUSED":"E"}
+
+        out = []
+        for s in students:
+            marks = [code.get(rec_map.get(s.id, {}).get(start + timedelta(d), ""), "") for d in range(days)]
+            cnt = {**{k: marks.count(k) for k in "PALE"}, "Blank": marks.count("")}
+            pct = {k: round((v / len(marks)) * 100, 1) if len(marks) else 0.0 for k, v in cnt.items()}
+            out.append({"id": s.id, "name": str(s), "roll_number": getattr(s, "roll_number", None), "counts": cnt, "percent": pct, "days": marks})
+
+        meta = {
+            "class": getattr(ClassName.objects.filter(id=class_id).first(), "name", "") or "",
+            "section": getattr(Section.objects.filter(id=section_id).first(), "name", "") or "",
+            "subject": getattr(Subject.objects.filter(id=subject_id).first(), "name", "") if subject_id else "",
+            "start": str(start), "end": str(end), "days": days, "day_headers": headers,
+            "month": start.month, "year": start.year,
+        }
+        return Response({"meta": meta, "students": out}, status=200)
+    
+
+
+class GradeScaleViewSet(viewsets.ModelViewSet):
+    """
+    Admin-managed. Anyone authenticated can GET; only staff can POST/PATCH/DELETE.
+    """
+    queryset = GradeScale.objects.all().order_by("-is_active", "name")
+    serializer_class = GradeScaleSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            return [IsAdminUser()]
+        return super().get_permissions()
+
+
+class GradeBandViewSet(viewsets.ModelViewSet):
+    """
+    Bands under a scale. Same permission model as GradeScale.
+    """
+    queryset = GradeBand.objects.all().order_by("-min_score")
+    serializer_class = GradeBandSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            return [IsAdminUser()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        scale_id = self.request.query_params.get("scale")
+        if scale_id:
+            qs = qs.filter(scale_id=scale_id)
+        return qs
+
+
+class ExamViewSet(viewsets.ModelViewSet):
+    """
+    Exams are created/managed by admin; teachers/students can read.
+    """
+    queryset = Exam.objects.all().order_by("-created_at")
+    serializer_class = ExamSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            return [IsAdminUser()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params
+        class_id = q.get("class_name") or q.get("class_id")
+        section_id = q.get("section") or q.get("section_id")
+        if class_id:
+            qs = qs.filter(class_name_id=class_id)
+        if section_id:
+            qs = qs.filter(section_id=section_id)
+        return qs
+
+
+class ExamMarkViewSet(viewsets.ModelViewSet):
+    """
+    Teachers post marks; GPA/letter auto-computed server-side.
+    Students can GET only published exams' marks (handled in queryset).
+    """
+    queryset = ExamMark.objects.select_related("exam", "student", "subject").all()
+    serializer_class = ExamMarkSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params
+
+        exam_id = q.get("exam")
+        student_id = q.get("student")
+        subject_id = q.get("subject")
+
+        if exam_id:
+            qs = qs.filter(exam_id=exam_id)
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+        if subject_id:
+            qs = qs.filter(subject_id=subject_id)
+
+        # Non-staff can only see marks for published exams
+        user = self.request.user
+        if not (user.is_staff or user.is_superuser):
+            qs = qs.filter(exam__is_published=True)
+
+        return qs

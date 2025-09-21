@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import viewsets, status
@@ -224,6 +225,51 @@ class StudentViewSet(viewsets.ModelViewSet):
         if not student:
             return Response({"detail": "No student profile linked."}, status=status.HTTP_404_NOT_FOUND)
         return Response(StudentSerializer(student).data, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=["post", ], url_path="promote")
+    def promote(self, request):
+        """
+        POST /api/students/promote/
+        Either:
+          { "student_ids":[...], "to_class_id":5, "to_section_id":7, "dry_run":false }
+        OR (promote entire class/section):
+          { "promote_all":true, "from_class_id":1, "from_section_id":2, "to_class_id":5, "to_section_id":7 }
+        """
+        data = request.data or {}
+
+        promote_all   = bool(data.get("promote_all", False))
+        from_class_id = data.get("from_class_id")
+        from_section_id = data.get("from_section_id")
+
+        to_class_id   = data.get("to_class_id")
+        to_section_id = data.get("to_section_id")
+        dry_run       = bool(data.get("dry_run", False))
+        student_ids   = data.get("student_ids") or []
+
+        if not to_class_id:
+            return Response({"detail": "to_class_id is required."}, status=400)
+
+        # Build the queryset
+        if promote_all:
+            if not from_class_id:
+                return Response({"detail": "from_class_id is required when promote_all=true."}, status=400)
+            qs = Student.objects.filter(class_name_id=from_class_id)
+            if from_section_id:
+                qs = qs.filter(section_id=from_section_id)
+        else:
+            if not student_ids:
+                return Response({"detail": "Provide student_ids or set promote_all=true."}, status=400)
+            qs = Student.objects.filter(id__in=student_ids)
+
+        count = qs.count()
+        if dry_run:
+            return Response({"summary": {"count": count}}, status=200)
+
+        # one-line bulk update
+        with transaction.atomic():
+            moved = qs.update(class_name_id=to_class_id, section_id=to_section_id)
+
+        return Response({"ok": True, "moved": moved, "scope_count": count}, status=200)
 
 
 # -------------------------------

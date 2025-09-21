@@ -21,8 +21,33 @@ class SectionViewSet(viewsets.ModelViewSet):
 
 # -------- Classes --------
 class ClassNameViewSet(viewsets.ModelViewSet):
-    queryset = ClassName.objects.all().order_by("name").prefetch_related("sections")
+    """
+    Supports:
+      - GET /class-names/?year=2025  -> filter by year
+      - POST {name, year, sections:[ids]} -> create class for a year
+    """
     serializer_class = ClassNameSerializer
+
+    def get_queryset(self):
+        qs = ClassName.objects.prefetch_related("sections").order_by("year", "name")
+        year = self.request.query_params.get("year")
+        if year:
+            try:
+                qs = qs.filter(year=int(year))
+            except ValueError:
+                pass
+        return qs
+
+    @action(detail=False, methods=["get"])
+    def years(self, request):
+        """
+        Small helper for frontend: list available years, newest first.
+        GET /class-names/years/
+        """
+        years = (ClassName.objects.values_list("year", flat=True)
+                 .order_by("-year")
+                 .distinct())
+        return Response(list(years))
 
 
 # -------- Subjects --------

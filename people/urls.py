@@ -8,7 +8,7 @@ from .views import (
 router = DefaultRouter()
 
 router.register(r'staff', StaffViewSet)
-router.register(r'students', StudentViewSet)
+router.register(r"students", StudentViewSet, basename="students")
 router.register(r'principal-list', PrincipalListViewSet)
 router.register(r'president-list', PresidentListViewSet)
 router.register(r'teachers', TeacherViewSet, basename='teachers')

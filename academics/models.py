@@ -242,3 +242,88 @@ class AttendanceRecord(models.Model):
 
     def __str__(self):
         return f"{self.date} • {self.timetable} • {self.student} • {self.status}"
+
+
+class GradeScale(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        # keep only one scale active
+        if self.is_active:
+            GradeScale.objects.filter(is_active=True).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
+
+class GradeBand(models.Model):
+    scale = models.ForeignKey(GradeScale, on_delete=models.CASCADE, related_name="bands")
+    min_score = models.PositiveIntegerField()
+    max_score = models.PositiveIntegerField()
+    letter = models.CharField(max_length=5)
+    gpa = models.DecimalField(max_digits=3, decimal_places=2)
+
+    class Meta:
+        ordering = ["-min_score"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(min_score__lte=models.F("max_score")),
+                name="grades_min_le_max",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.letter} {self.min_score}-{self.max_score} → {self.gpa}"
+
+
+class Exam(models.Model):
+    class_name = models.ForeignKey("master.ClassName", on_delete=models.CASCADE)
+    section = models.ForeignKey("master.Section", on_delete=models.CASCADE)
+    name = models.CharField(max_length=200)
+    is_published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("class_name", "section", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.class_name} {self.section})"
+
+
+class ExamMark(models.Model):
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="marks")
+    student = models.ForeignKey("people.Student", on_delete=models.CASCADE)
+    subject = models.ForeignKey("master.Subject", on_delete=models.CASCADE)
+    score = models.DecimalField(max_digits=5, decimal_places=2)
+    gpa = models.DecimalField(max_digits=3, decimal_places=2, blank=True, null=True)
+    letter = models.CharField(max_length=5, blank=True)
+
+    class Meta:
+        unique_together = ("exam", "student", "subject")
+
+    def clean(self):
+        # subject must belong to exam.class_name
+        if getattr(self.subject, "class_name_id", None) != self.exam.class_name_id:
+            raise ValidationError("Subject does not belong to the exam’s class.")
+        # TODO: you may also assert student belongs to that class/section if your Student model has those FKs.
+
+    def _apply_grade(self):
+        scale = GradeScale.objects.filter(is_active=True).first()
+        if not scale:
+            self.gpa = None
+            self.letter = ""
+            return
+        band = scale.bands.filter(min_score__lte=self.score, max_score__gte=self.score).first()
+        if band:
+            self.gpa = band.gpa
+            self.letter = band.letter
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        self._apply_grade()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student} • {self.subject} • {self.score} → {self.letter}/{self.gpa}"
