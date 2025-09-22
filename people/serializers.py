@@ -41,12 +41,20 @@ class TeacherSerializer(serializers.ModelSerializer):
 class StudentMiniSerializer(serializers.ModelSerializer):
     """Slim serializer for teacher views (attendance, student list, etc.)"""
     class_name_label = serializers.CharField(source="class_name.name", read_only=True)
-    section_label = serializers.CharField(source="section.name", read_only=True)
+    section_label    = serializers.CharField(source="section.name", read_only=True)
+    # Optional: include contacts if you want them in list endpoints too
+    contact_email    = serializers.EmailField(read_only=True, required=False, allow_blank=True)
+    contact_phone    = serializers.CharField(read_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Student
-        fields = ["id", "full_name", "roll_number", "class_name", "section", "photo",
-                  "class_name_label", "section_label"]
+        fields = [
+            "id", "full_name", "roll_number",
+            "class_name", "section", "photo",
+            "class_name_label", "section_label",
+            # optional extras:
+            "contact_email", "contact_phone",
+        ]
 
 
 
@@ -70,6 +78,10 @@ class StudentSerializer(serializers.ModelSerializer):
     class_name_label = serializers.CharField(source="class_name.name", read_only=True)
     section_label    = serializers.CharField(source="section.name", read_only=True)
 
+    # ✅ make these writable and optional so PUT/PATCH works
+    contact_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    contact_phone = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = Student
         fields = [
@@ -77,6 +89,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "class_name", "section", "class_name_label", "section_label",
             "roll_number", "admission_no",
             "guardian_name", "guardian_phone", "address", "photo",
+            "contact_email", "contact_phone",   # <-- added
             "user", "created_at",
         ]
         read_only_fields = ["created_at"]

@@ -10,7 +10,7 @@ class SectionAdmin(admin.ModelAdmin):
 
 @admin.register(ClassName)
 class ClassNameAdmin(admin.ModelAdmin):
-    list_display = ("id", "name")
+    list_display = ("id", "name", "year")
     search_fields = ("name",)
     filter_horizontal = ("sections",)
 

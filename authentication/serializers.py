@@ -113,23 +113,43 @@ class PasswordChangeSerializer(serializers.Serializer):
            
                 
         
+# authentication/serializers.py
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
 class UserProfileSerializer(serializers.ModelSerializer):
-    teacher_id = serializers.IntegerField(source="teacher_profile.id", read_only=True)
+    # Existing teacher fields (kept)
+    teacher_id   = serializers.IntegerField(source="teacher_profile.id", read_only=True)
     teacher_name = serializers.CharField(source="teacher_profile.full_name", read_only=True)
 
-    # Return merged values + absolute image URL
-    email = serializers.SerializerMethodField()
-    phone = serializers.SerializerMethodField()
-    profile_picture = serializers.SerializerMethodField()
+    # NEW: student fields
+    student_id    = serializers.IntegerField(source="student_profile.id", read_only=True)
+    student_name  = serializers.CharField(source="student_profile.full_name", read_only=True)
+    roll_number   = serializers.SerializerMethodField()
+    class_label   = serializers.SerializerMethodField()
+    section_label = serializers.SerializerMethodField()
+
+    # Merged values + absolute image URL
+    email            = serializers.SerializerMethodField()
+    phone            = serializers.SerializerMethodField()
+    profile_picture  = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
+            # core
             'id', 'username', 'email', 'role',
+            # unified contact/photo (with fallbacks)
             'profile_picture', 'phone',
-            'teacher_id', 'teacher_name'
+            # teacher
+            'teacher_id', 'teacher_name',
+            # student
+            'student_id', 'student_name', 'roll_number', 'class_label', 'section_label',
         ]
 
+    # ----- helpers -----
     def _abs_url(self, request, f):
         """Turn FileField/ImageField value into an absolute URL."""
         if not f:
@@ -142,24 +162,68 @@ class UserProfileSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(url)
         return url
 
+    # ----- merged contact fields -----
     def get_email(self, obj):
-        # Prefer user.email; fall back to teacher_profile.contact_email
+        # Prefer user.email; fall back to teacher_profile.contact_email; then student_profile.contact_email
         tp = getattr(obj, "teacher_profile", None)
-        return obj.email or getattr(tp, "contact_email", None)
+        sp = getattr(obj, "student_profile", None)
+        return obj.email or getattr(tp, "contact_email", None) or getattr(sp, "contact_email", None)
 
     def get_phone(self, obj):
-        # Prefer user.phone; fall back to teacher_profile.contact_phone
+        # Prefer user.phone; fall back to teacher_profile.contact_phone; then student_profile.contact_phone
         tp = getattr(obj, "teacher_profile", None)
-        return obj.phone or getattr(tp, "contact_phone", None)
+        sp = getattr(obj, "student_profile", None)
+        return obj.phone or getattr(tp, "contact_phone", None) or getattr(sp, "contact_phone", None)
 
     def get_profile_picture(self, obj):
-        # Prefer user's picture; fall back to teacher_profile.photo; always absolute
+        # Prefer user's picture; fall back to teacher_profile.photo; then student_profile.photo; always absolute
         request = self.context.get("request")
-        pic = self._abs_url(request, getattr(obj, "profile_picture", None))
-        if pic:
-            return pic
+        # user picture
+        pic = getattr(obj, "profile_picture", None)
+        url = self._abs_url(request, pic)
+        if url:
+            return url
+        # teacher fallback
         tp = getattr(obj, "teacher_profile", None)
-        return self._abs_url(request, getattr(tp, "photo", None))
+        if tp:
+            url = self._abs_url(request, getattr(tp, "photo", None))
+            if url:
+                return url
+        # student fallback
+        sp = getattr(obj, "student_profile", None)
+        if sp:
+            url = self._abs_url(request, getattr(sp, "photo", None))
+            if url:
+                return url
+        return None
+
+    # ----- student display fields -----
+    def get_roll_number(self, obj):
+        sp = getattr(obj, "student_profile", None)
+        return getattr(sp, "roll_number", None) if sp else None
+
+    def get_class_label(self, obj):
+        sp = getattr(obj, "student_profile", None)
+        if not sp:
+            return None
+        # tolerate multiple model shapes
+        return (
+            getattr(sp, "class_name_label", None)
+            or getattr(getattr(sp, "class_name", None), "name", None)
+            or getattr(sp, "class_name", None)
+            or getattr(sp, "klass", None)
+        )
+
+    def get_section_label(self, obj):
+        sp = getattr(obj, "student_profile", None)
+        if not sp:
+            return None
+        return (
+            getattr(sp, "section_label", None)
+            or getattr(getattr(sp, "section", None), "name", None)
+            or getattr(sp, "section", None)
+        )
+
         
         
         

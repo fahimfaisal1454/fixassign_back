@@ -10,7 +10,7 @@ from .models import (
 from master.models import ClassName, Section, Subject
 
 # If your Teacher model lives elsewhere, update the dotted path below.
-from people.models import Teacher
+from people.models import Teacher,Student 
 
 
 
@@ -30,15 +30,13 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
 
 class TimetableEntrySerializer(serializers.ModelSerializer):
-    # labels for UI
-    class_name_label = serializers.CharField(source="class_name.name", read_only=True)
-    section_label = serializers.CharField(source="section.name", read_only=True)
-    subject_label = serializers.CharField(source="subject.name", read_only=True)
-    teacher_label = serializers.CharField(source="teacher.__str__", read_only=True)
-    classroom_label = serializers.CharField(source="classroom.name", read_only=True)
-    day_of_week_display = serializers.CharField(
-        source="get_day_of_week_display", read_only=True
-    )
+    # labels for UI (unchanged)
+    class_name_label    = serializers.CharField(source="class_name.name", read_only=True)
+    section_label       = serializers.CharField(source="section.name", read_only=True)
+    subject_label       = serializers.CharField(source="subject.name", read_only=True)
+    teacher_label       = serializers.CharField(source="teacher.__str__", read_only=True)
+    classroom_label     = serializers.CharField(source="classroom.name", read_only=True)
+    day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
 
     class Meta:
         model = TimetableEntry
@@ -54,25 +52,52 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
             "start_time", "end_time",
         ]
 
+    # ✅ NEW: capacity enforcement
+    def validate(self, attrs):
+        """
+        Block save if classroom capacity < class size.
+        (capacity None/0/negative = unlimited)
+        Works for POST and PATCH.
+        """
+        instance   = getattr(self, "instance", None)
+        class_name = attrs.get("class_name") or getattr(instance, "class_name", None)
+        section    = attrs.get("section")    or getattr(instance, "section", None)
+        classroom  = attrs.get("classroom")  or getattr(instance, "classroom", None)
+
+        if class_name and section and classroom:
+            cap = getattr(classroom, "capacity", None)
+            if cap and cap > 0:
+                size = Student.objects.filter(class_name=class_name, section=section).count()
+                if size > cap:
+                    raise serializers.ValidationError({
+                        "classroom": (
+                            f"Room capacity ({cap}) is less than class size ({size}). "
+                            f"Select a larger room or split the section."
+                        )
+                    })
+        return attrs
+
+    # unchanged
     def _full_clean_or_raise(self, instance):
         try:
             instance.full_clean()
         except DjangoValidationError as e:
             raise serializers.ValidationError(e.message_dict or e.messages)
 
+    # unchanged
     def create(self, validated_data):
         instance = TimetableEntry(**validated_data)
         self._full_clean_or_raise(instance)
         instance.save()
         return instance
 
+    # unchanged
     def update(self, instance, validated_data):
         for k, v in validated_data.items():
             setattr(instance, k, v)
         self._full_clean_or_raise(instance)
         instance.save()
         return instance
-
 
 # ── Simple models ────────────────────────────────────────────────────────────
 

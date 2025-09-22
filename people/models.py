@@ -55,6 +55,8 @@ class Student(models.Model):
 
     guardian_name  = models.CharField(max_length=120, blank=True)
     guardian_phone = models.CharField(max_length=30, blank=True)
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=30, blank=True, null=True)
     address        = models.TextField(blank=True)
     photo          = models.ImageField(upload_to="student_photos/", blank=True, null=True)
 

@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q, F, CheckConstraint, UniqueConstraint, Index
 from django.core.exceptions import ValidationError
 from django.conf import settings
-
+from people.models import Student
 # ─────────────────────────────────────────────────────────────────────────────
 # Period & Classroom
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,7 +157,19 @@ class TimetableEntry(models.Model):
             f"{self.class_name} {self.section} • {self.day_of_week}{period_part} "
             f"{self.start_time}-{self.end_time}{teacher_part}{room_part}"
         )
-
+def clean(self):
+        super().clean()
+        if self.class_name_id and self.section_id and self.classroom_id:
+            cap = getattr(self.classroom, "capacity", None)
+            if cap and cap > 0:
+                size = Student.objects.filter(class_name=self.class_name, section=self.section).count()
+                if size > cap:
+                    raise ValidationError({
+                        "classroom": (
+                            f"Room capacity ({cap}) is less than class size ({size}). "
+                            f"Select a larger room or split the section."
+                        )
+                    })
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Other Academic Models
