@@ -20,9 +20,7 @@ urlpatterns = [
     path('change-password/', PasswordChangeView.as_view(), name='change-password'),
     path('update-profile/', UserProfileUpdateView.as_view(), name='update-profile'),
 
-
-
-    # NEW: Admin-only user management
+    # Admin-only user management
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),
     path('admin/users/<int:pk>/', AdminUserRetrieveUpdateView.as_view(), name='admin-user-detail'),
     path('admin/users/<int:pk>/reset-password/', AdminResetPasswordView.as_view(), name='admin-user-reset-password'),

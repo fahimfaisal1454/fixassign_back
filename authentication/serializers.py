@@ -116,9 +116,50 @@ class PasswordChangeSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     teacher_id = serializers.IntegerField(source="teacher_profile.id", read_only=True)
     teacher_name = serializers.CharField(source="teacher_profile.full_name", read_only=True)
+
+    # Return merged values + absolute image URL
+    email = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'profile_picture','phone','teacher_id', 'teacher_name']
+        fields = [
+            'id', 'username', 'email', 'role',
+            'profile_picture', 'phone',
+            'teacher_id', 'teacher_name'
+        ]
+
+    def _abs_url(self, request, f):
+        """Turn FileField/ImageField value into an absolute URL."""
+        if not f:
+            return None
+        try:
+            url = f.url if hasattr(f, "url") else str(f)
+        except Exception:
+            url = str(f)
+        if request and url and url.startswith("/"):
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_email(self, obj):
+        # Prefer user.email; fall back to teacher_profile.contact_email
+        tp = getattr(obj, "teacher_profile", None)
+        return obj.email or getattr(tp, "contact_email", None)
+
+    def get_phone(self, obj):
+        # Prefer user.phone; fall back to teacher_profile.contact_phone
+        tp = getattr(obj, "teacher_profile", None)
+        return obj.phone or getattr(tp, "contact_phone", None)
+
+    def get_profile_picture(self, obj):
+        # Prefer user's picture; fall back to teacher_profile.photo; always absolute
+        request = self.context.get("request")
+        pic = self._abs_url(request, getattr(obj, "profile_picture", None))
+        if pic:
+            return pic
+        tp = getattr(obj, "teacher_profile", None)
+        return self._abs_url(request, getattr(tp, "photo", None))
         
         
         
@@ -130,8 +171,29 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'email': {'required': False},
             'phone': {'required': False},
-            'profile_picture': {'required': False}
+            'profile_picture': {'required': False},
         }
+
+    def update(self, instance, validated_data):
+        # Update User fields
+        email = validated_data.get('email', None)
+        phone = validated_data.get('phone', None)
+        picture = validated_data.get('profile_picture', None)
+
+        if email is not None:
+            instance.email = email
+        if phone is not None:
+            instance.phone = phone
+            # keep Teacher contact in sync for future fallbacks
+            tp = getattr(instance, "teacher_profile", None)
+            if tp:
+                setattr(tp, "contact_phone", phone)
+                tp.save()
+        if picture is not None:
+            instance.profile_picture = picture
+
+        instance.save()
+        return instance
         
 User = get_user_model()
 
