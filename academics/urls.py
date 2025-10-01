@@ -5,7 +5,7 @@ from .views import (
     ClassNameViewSet, 
     PeriodViewSet, ClassroomViewSet, TimetableEntryViewSet,
     ExamRoutineViewSet, SyllabusViewSet, ResultViewSet, RoutineViewSet,
-    GalleryItemViewSet, AttendanceViewSet, GradeScaleViewSet, GradeBandViewSet, ExamViewSet, ExamMarkViewSet
+    GalleryItemViewSet, AttendanceViewSet, GradeScaleViewSet, GradeBandViewSet, ExamViewSet, ExamMarkViewSet,AssignmentViewSet
 )
 
 router = DefaultRouter()
@@ -28,7 +28,7 @@ router.register(r"results", ResultViewSet, basename="result")
 router.register(r"routines", RoutineViewSet, basename="routine")
 router.register(r"gallery", GalleryItemViewSet, basename="gallery")
 router.register(r"attendance", AttendanceViewSet, basename="attendance")
-
+router.register("assignments", AssignmentViewSet, basename="assignments")
 
 
 #exam

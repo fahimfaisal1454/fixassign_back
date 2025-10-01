@@ -1,21 +1,23 @@
 from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework import viewsets, permissions
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.core.exceptions import FieldError
 from .models import (
     Period, Classroom, TimetableEntry,
-    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord, GradeScale, GradeBand, Exam, ExamMark
+    ExamRoutine, Syllabus, Result, Routine, GalleryItem, AttendanceRecord, GradeScale, GradeBand, Exam, ExamMark, Assignment
 
 )
 from .serializers import (
     PeriodSerializer, ClassroomSerializer, TimetableEntrySerializer,
     ExamRoutineSerializer, SyllabusSerializer, ResultSerializer, RoutineSerializer,
-    GalleryItemSerializer, AttendanceRecordSerializer, GradeScaleSerializer, GradeBandSerializer,
+    GalleryItemSerializer, AttendanceRecordSerializer, GradeScaleSerializer, GradeBandSerializer, AssignmentSerializer,
     ExamSerializer, ExamMarkSerializer,
 )
-from master.models import ClassName, Subject
+from master.models import ClassName, Subject, Section
 from people.models import Student, Teacher
 from django.utils.dateparse import parse_date
 from calendar import monthrange
@@ -522,5 +524,53 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not (user.is_staff or user.is_superuser):
             qs = qs.filter(exam__is_published=True)
+
+        return qs
+    
+    
+#─────────────────────────────────────────────────────────────────────────────
+class AssignmentViewSet(viewsets.ModelViewSet):
+    queryset = Assignment.objects.all().order_by("-created_at")
+    serializer_class = AssignmentSerializer
+    parser_classes = [MultiPartParser, FormParser]  # PDF upload
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # Attach the logged-in teacher
+        teacher = get_object_or_404(Teacher, user=self.request.user)
+        serializer.save(teacher=teacher)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        # Filters
+        teacher = self.request.query_params.get("teacher")   # "me" to see my uploads
+        student = self.request.query_params.get("student")   # "me" to see my class/section
+        subject = self.request.query_params.get("subject")   # subject id
+        class_id = self.request.query_params.get("class") or self.request.query_params.get("class_name")
+        section_id = self.request.query_params.get("section")
+
+        if teacher == "me":
+            try:
+                t = Teacher.objects.get(user=self.request.user)
+                qs = qs.filter(teacher=t)
+            except Teacher.DoesNotExist:
+                return Assignment.objects.none()
+
+        if student == "me":
+            try:
+                s = Student.objects.get(user=self.request.user)
+                qs = qs.filter(class_name=s.class_name, section=s.section)
+                if subject:
+                    qs = qs.filter(subject_id=subject)
+            except Student.DoesNotExist:
+                return Assignment.objects.none()
+
+        if subject:
+            qs = qs.filter(subject_id=subject)
+        if class_id:
+            qs = qs.filter(class_name_id=class_id)
+        if section_id:
+            qs = qs.filter(section_id=section_id)
 
         return qs

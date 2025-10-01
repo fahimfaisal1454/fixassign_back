@@ -2,7 +2,8 @@ from django.db import models
 from django.db.models import Q, F, CheckConstraint, UniqueConstraint, Index
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from people.models import Student
+from people.models import Student, Teacher
+from master.models import ClassName, Section, Subject
 # ─────────────────────────────────────────────────────────────────────────────
 # Period & Classroom
 # ─────────────────────────────────────────────────────────────────────────────
@@ -410,3 +411,27 @@ class ExamMark(models.Model):
 
     def __str__(self):
         return f"{self.student} • {self.subject} • {self.score} → {self.letter}/{self.gpa}"
+    
+   
+   
+   
+    #───────────────────────────────────────────────────────────────────────────── 
+    
+class Assignment(models.Model):
+    class_name = models.ForeignKey(ClassName, on_delete=models.CASCADE, related_name="assignments")
+    section    = models.ForeignKey(Section,   on_delete=models.CASCADE, related_name="assignments")
+    subject    = models.ForeignKey(Subject,   on_delete=models.CASCADE, related_name="assignments")
+    teacher    = models.ForeignKey(Teacher,   on_delete=models.CASCADE, related_name="assignments")
+
+    title        = models.CharField(max_length=200)
+    instructions = models.TextField(blank=True)
+    due_date     = models.DateField(null=True, blank=True)
+    file         = models.FileField(upload_to="assignments/")  # PDF upload
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.class_name}-{self.section} / {self.subject})"
