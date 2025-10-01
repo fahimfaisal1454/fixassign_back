@@ -3,7 +3,7 @@ from .models import (
     Period, Classroom, TimetableEntry,
     ExamRoutine, Syllabus, Result, Routine, GalleryItem,
     AttendanceRecord, GradeScale, GradeBand,
-    Exam, ExamMark
+    Exam, ExamMark, Assignment,
 )
 
 
@@ -88,3 +88,8 @@ class ExamMarkAdmin(admin.ModelAdmin):
     list_display = ("exam", "student", "subject", "score", "letter", "gpa")
     list_filter = ("exam", "subject", "letter")
     search_fields = ("student__first_name", "student__last_name", "subject__name")
+@admin.register(Assignment)
+class AssignmentAdmin(admin.ModelAdmin):
+    list_display = ("title", "class_name", "section", "subject", "teacher", "due_date", "created_at")
+    list_filter = ("class_name", "section", "subject", "teacher")
+    search_fields = ("title", "instructions")

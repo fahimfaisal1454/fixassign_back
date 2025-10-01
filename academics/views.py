@@ -529,48 +529,81 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
     
     
 #─────────────────────────────────────────────────────────────────────────────
-class AssignmentViewSet(viewsets.ModelViewSet):
-    queryset = Assignment.objects.all().order_by("-created_at")
-    serializer_class = AssignmentSerializer
-    parser_classes = [MultiPartParser, FormParser]  # PDF upload
-    permission_classes = [permissions.IsAuthenticated]
+class IsTeacherOrAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        # Students can READ
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # Only staff/teachers can write
+        if user.is_staff:
+            return True
+        return Teacher.objects.filter(user=user).exists()
 
-    def perform_create(self, serializer):
-        # Attach the logged-in teacher
-        teacher = get_object_or_404(Teacher, user=self.request.user)
-        serializer.save(teacher=teacher)
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if user.is_staff:
+            return True
+        t = Teacher.objects.filter(user=user).first()
+        return bool(t) and obj.teacher_id == t.id
+
+class AssignmentViewSet(viewsets.ModelViewSet):
+    queryset = Assignment.objects.select_related(
+        "class_name", "section", "subject", "teacher"
+    ).all()
+    serializer_class = AssignmentSerializer
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsTeacherOrAdmin]
 
     def get_queryset(self):
         qs = super().get_queryset()
 
-        # Filters
-        teacher = self.request.query_params.get("teacher")   # "me" to see my uploads
-        student = self.request.query_params.get("student")   # "me" to see my class/section
-        subject = self.request.query_params.get("subject")   # subject id
-        class_id = self.request.query_params.get("class") or self.request.query_params.get("class_name")
-        section_id = self.request.query_params.get("section")
+        # Optional filters for UI
+        q = self.request.query_params
+        class_id   = q.get("class_id")   or q.get("class_name")
+        section_id = q.get("section_id") or q.get("section")
+        subject_id = q.get("subject_id") or q.get("subject")
 
-        if teacher == "me":
-            try:
-                t = Teacher.objects.get(user=self.request.user)
-                qs = qs.filter(teacher=t)
-            except Teacher.DoesNotExist:
-                return Assignment.objects.none()
-
-        if student == "me":
-            try:
-                s = Student.objects.get(user=self.request.user)
-                qs = qs.filter(class_name=s.class_name, section=s.section)
-                if subject:
-                    qs = qs.filter(subject_id=subject)
-            except Student.DoesNotExist:
-                return Assignment.objects.none()
-
-        if subject:
-            qs = qs.filter(subject_id=subject)
         if class_id:
             qs = qs.filter(class_name_id=class_id)
         if section_id:
             qs = qs.filter(section_id=section_id)
+        if subject_id:
+            qs = qs.filter(subject_id=subject_id)
 
-        return qs
+        # Teachers see only their own by default; staff see all
+        user = self.request.user
+        if not user.is_staff:
+            t = Teacher.objects.filter(user=user).first()
+            if t:
+                qs = qs.filter(teacher=t)
+        return qs.order_by("-created_at")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        # find the Teacher row if this user is a teacher
+        t = Teacher.objects.filter(user=user).first()
+
+        # Case 1: a teacher is posting → always assign to themselves
+        if t and not user.is_staff:
+            serializer.save(teacher=t)
+            return
+
+        # Case 2: staff is posting → allow choosing a teacher via payload
+        if user.is_staff:
+            teacher_id = self.request.data.get("teacher")
+            if not teacher_id:
+                # if you prefer, you can default to None and allow null in the model
+                raise PermissionDenied("Staff must supply 'teacher' when creating assignments.")
+            t2 = Teacher.objects.filter(id=teacher_id).first()
+            if not t2:
+                raise PermissionDenied("Invalid teacher id.")
+            serializer.save(teacher=t2)
+            return
+
+        # Neither staff nor teacher → block
+        raise PermissionDenied("Only teachers or admins can create assignments.")

@@ -251,37 +251,20 @@ class ExamMarkSerializer(serializers.ModelSerializer):
     
 #_─────────────────────────────────────────────────────────────────────────────
 class AssignmentSerializer(serializers.ModelSerializer):
+    class_name_label = serializers.CharField(source="class_name.name", read_only=True)
+    section_label = serializers.CharField(source="section.name", read_only=True)
+    subject_label = serializers.CharField(source="subject.name", read_only=True)
+    teacher_name = serializers.CharField(source="teacher.__str__", read_only=True)
+
     class Meta:
         model = Assignment
-        fields = "__all__"
-        read_only_fields = ("teacher", "created_at")
-
-    # accept either numeric id or a name like "A" / "Bangla"
-    def _coerce_fk(self, Model, value, name_fields=("name","title","code","subject_name","section_name","class_name")):
-        if value in (None, ""):
-            raise serializers.ValidationError(f"Missing {Model.__name__}")
-        # try pk
-        try:
-            return Model.objects.get(pk=int(value))
-        except (ValueError, TypeError, Model.DoesNotExist):
-            pass
-        # try by name-ish fields
-        for f in name_fields:
-            try:
-                return Model.objects.get(**{f: value})
-            except Model.DoesNotExist:
-                continue
-        raise serializers.ValidationError(f"{Model.__name__} not found for '{value}'")
-
-    def create(self, validated_data):
-        req = self.context["request"]
-        data = req.data  # raw incoming values
-
-        # coerce FKs from id OR label
-        validated_data["class_name"] = self._coerce_fk(ClassName, data.get("class_name"))
-        validated_data["section"]    = self._coerce_fk(Section,   data.get("section"))
-        validated_data["subject"]    = self._coerce_fk(Subject,   data.get("subject"))
-
-        # attach teacher automatically
-        validated_data["teacher"] = req.user.teacher
-        return super().create(validated_data)
+        fields = [
+            "id",
+            "class_name", "class_name_label",
+            "section", "section_label",
+            "subject", "subject_label",
+            "teacher", "teacher_name",
+            "title", "instructions", "due_date", "file",
+            "created_at",
+        ]
+        read_only_fields = ["teacher", "created_at"]

@@ -426,7 +426,7 @@ class Assignment(models.Model):
     title        = models.CharField(max_length=200)
     instructions = models.TextField(blank=True)
     due_date     = models.DateField(null=True, blank=True)
-    file         = models.FileField(upload_to="assignments/")  # PDF upload
+    file         = models.FileField(upload_to="assignments/", blank=True, null=True)  # PDF upload
 
     created_at = models.DateTimeField(auto_now_add=True)
 
