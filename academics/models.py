@@ -271,18 +271,18 @@ class GradeScale(models.Model):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
 
 
-class GradeScale(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    is_active = models.BooleanField(default=False)
+# class GradeScale(models.Model):
+#     name = models.CharField(max_length=100, unique=True)
+#     is_active = models.BooleanField(default=False)
 
-    def save(self, *args, **kwargs):
-        # keep only one scale active
-        if self.is_active:
-            GradeScale.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
-        super().save(*args, **kwargs)
+#     def save(self, *args, **kwargs):
+#         # keep only one scale active
+#         if self.is_active:
+#             GradeScale.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+#         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+#     def __str__(self):
+#         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
 
 
 class GradeBand(models.Model):

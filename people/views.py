@@ -43,7 +43,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
       - linked=false : only teachers NOT linked to a user
     """
     serializer_class = TeacherSerializer
-    permission_classes = [IsAuthenticated]
+
 
     def get_queryset(self):
         qs = Teacher.objects.all().order_by("full_name")
@@ -119,14 +119,14 @@ class TeacherViewSet(viewsets.ModelViewSet):
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.all().order_by("full_name")
     serializer_class = StaffSerializer
-    permission_classes = [IsAuthenticated]
+
 
 
 
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
-    permission_classes = [IsAuthenticated]
+
 
     def get_queryset(self):
         qs = (
@@ -278,10 +278,10 @@ class StudentViewSet(viewsets.ModelViewSet):
 class PrincipalListViewSet(viewsets.ModelViewSet):
     queryset = PrincipalList.objects.all().order_by("-to_date")
     serializer_class = PrincipalListSerializer
-    permission_classes = [IsAuthenticated]
+
 
 
 class PresidentListViewSet(viewsets.ModelViewSet):
     queryset = PresidentList.objects.all().order_by("-to_date")
     serializer_class = PresidentListSerializer
-    permission_classes = [IsAuthenticated]
+
